@@ -1,9 +1,11 @@
 from functools import partial
-from typing import NamedTuple, Protocol, Tuple
+from typing import Literal, NamedTuple, Protocol, Tuple
 
 import chex
 import jax
 import jax.numpy as jnp
+
+from algorithms.gfn_tb.sampling_utils import get_sampling_func
 
 
 ### Helper Functions ###
@@ -150,7 +152,6 @@ class SampleFn(Protocol):
         buffer_state: TerminalStateBufferState,
         key: chex.PRNGKey,
         batch_size: int,
-        sample_with_replacement: bool = False,
     ) -> Tuple[chex.Array, chex.Array]:
         """
         Samples a batch from the buffer.
@@ -204,6 +205,8 @@ def build_terminal_state_buffer(
     max_length: int,
     prioritize_by: str,
     target_ess: float = 0.0,
+    sampling_method: Literal["multinomial", "stratified", "systematic", "rank"] = "multinomial",
+    rank_k: float = 0.01,
 ) -> TerminalBuffer:
     """
     Creates a prioritized replay buffer for terminal states using a circular buffer.
@@ -212,12 +215,23 @@ def build_terminal_state_buffer(
         dim: The dimension of the states to be stored.
         max_length: The maximum capacity of the buffer.
         prioritize_by: The method to use for prioritization.
+        target_ess: The target ESS for smoothing.
+        sampling_method: The method to use for sampling.
+        rank_k: The rank parameter for rank-based sampling.
     """
     assert max_length > 0, "max_length must be greater than 0."
+    assert sampling_method in [
+        "multinomial",
+        "stratified",
+        "systematic",
+        "rank",
+    ], "Invalid sampling method."
 
     get_priorities_partial = partial(
         get_priorities, prioritize_by=prioritize_by, target_ess=target_ess
     )
+    sampling_func = get_sampling_func(sampling_method, rank_k=rank_k)
+    sample_with_replacement = sampling_method != "rank"
 
     def init(
         dtype: jnp.dtype = jnp.float32,
@@ -278,10 +292,7 @@ def build_terminal_state_buffer(
         )
 
     def sample(
-        buffer_state: TerminalStateBufferState,
-        key: chex.PRNGKey,
-        batch_size: int,
-        sample_with_replacement: bool = False,
+        buffer_state: TerminalStateBufferState, key: chex.PRNGKey, batch_size: int
     ) -> Tuple[chex.Array, chex.Array]:
         """Samples a batch from the buffer in proportion to priorities."""
         # Determine the number of valid items currently in the buffer
@@ -294,13 +305,7 @@ def build_terminal_state_buffer(
             valid_priorities = binary_search_smoothing(valid_priorities, target_ess)
 
         # Sample indices based on the calculated logits
-        indices = jax.random.choice(
-            key,
-            buffer_size,
-            shape=(batch_size,),
-            p=jax.nn.softmax(valid_priorities),
-            replace=sample_with_replacement,
-        )
+        indices = sampling_func(key, valid_priorities, batch_size, sample_with_replacement)
 
         # Gather the data using the sampled indices
         sampled_states = buffer_state.data.states[indices]  # type: ignore

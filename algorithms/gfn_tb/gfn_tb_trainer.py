@@ -48,6 +48,8 @@ def gfn_tb_trainer(cfg, target):
             max_length=alg_cfg.buffer.max_length_in_batches * alg_cfg.batch_size,
             prioritize_by=alg_cfg.buffer.prioritize_by,
             target_ess=alg_cfg.buffer.target_ess,
+            sampling_method=alg_cfg.buffer.sampling_method,
+            rank_k=alg_cfg.buffer.rank_k,
         )
         buffer_state = buffer.init(dtype=target_samples.dtype, device=target_samples.device)
 
