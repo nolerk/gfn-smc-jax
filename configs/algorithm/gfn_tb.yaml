@@ -30,7 +30,7 @@ buffer:
   max_length_in_batches: 100
   prioritize_by: "piw"  # none, reward, loss, uiw, piw
   target_ess: 0.20
-  sampling_method: "multinomial"  # multinomial, stratified, systematic, rank
+  sampling_method: "systematic"  # multinomial, stratified, systematic, rank
   rank_k: 0.01
   sample_with_replacement: True
   prefill_steps: 10  # collect `prefill_steps` batches before starting training

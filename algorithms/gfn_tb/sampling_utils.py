@@ -45,8 +45,7 @@ def stratified(key: jax.Array, weights: chex.Array, N: int, replacement: bool = 
         return multinomial(key, weights, N, replacement=True)
 
     # Normalize weights if they're not already normalized
-    weights_sum = weights.sum()
-    weights = weights / weights_sum
+    weights = weights / weights.sum()
 
     cumsum = jnp.cumsum(weights)
     u = (jnp.arange(N) + random.uniform(key, shape=(N,))) / N
@@ -69,10 +68,8 @@ def systematic(key: jax.Array, weights: chex.Array, N: int, replacement: bool = 
         )
         return multinomial(key, weights, N, replacement=True)
 
-    # Normalize weights if they're not already normalized
-    weights_sum = weights.sum()
-    # A safe way to normalize in JAX, avoiding branching for JIT compatibility
-    weights = jnp.where(jnp.isclose(weights_sum, 1.0), weights, weights / weights_sum)
+    # Normalize weights
+    weights = weights / weights.sum()
 
     cumsum = jnp.cumsum(weights)
     u = (jnp.arange(N) + random.uniform(key, shape=(1,))) / N

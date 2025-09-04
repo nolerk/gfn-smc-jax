@@ -23,7 +23,7 @@ def get_priorities(
         case "none":
             return jnp.zeros((batch_size,))
         case "reward":
-            return log_rewards
+            return jax.lax.exp(log_rewards)
         case "loss":  # TB loss
             return losses
         case "uiw":
@@ -303,6 +303,7 @@ def build_terminal_state_buffer(
 
         if prioritize_by == "piw":
             valid_priorities = binary_search_smoothing(valid_priorities, target_ess)
+            valid_priorities = jax.nn.softmax(valid_priorities, axis=0)
 
         # Sample indices based on the calculated logits
         indices = sampling_func(key, valid_priorities, batch_size, sample_with_replacement)
