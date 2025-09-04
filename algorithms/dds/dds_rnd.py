@@ -1,7 +1,7 @@
-from functools import partial
-
 import jax
 import jax.numpy as jnp
+
+from algorithms.common.types import Array
 
 
 def cos_sq_fn_step_scheme(n_steps, noise_scale=1.0, s=0.008, dtype=jnp.float32):
@@ -23,22 +23,15 @@ def per_sample_rnd(
     initial_density_tuple,
     target,
     num_steps,
+    use_lp,
     stop_grad=False,
     prior_to_target=True,
+    terminal_x: Array | None = None,
 ):
     init_std, init_sampler, init_log_prob, noise_scale = initial_density_tuple
     target_log_prob = target.log_prob
 
-    def langevin_init_fn(x, t, T, initial_log_prob, target_log_prob):
-        tr = t / T
-        return target_log_prob(x)
-
-    langevin_init = partial(
-        langevin_init_fn,
-        T=num_steps,
-        initial_log_prob=init_log_prob,
-        target_log_prob=target_log_prob,
-    )
+    langevin_init = lambda x: target_log_prob(x)
     betas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)[::-1]
 
     def simulate_prior_to_target(state, per_step_input):
@@ -51,7 +44,10 @@ def per_sample_rnd(
             x = jax.lax.stop_gradient(x)
 
         # Compute SDE components
-        langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
+        if use_lp:
+            langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x))
+        else:
+            langevin = jnp.zeros(x.shape[0])
         model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
         key, key_gen = jax.random.split(key_gen)
         noise = jnp.clip(jax.random.normal(key, shape=x.shape), -4, 4)
@@ -82,7 +78,10 @@ def per_sample_rnd(
             x = jax.lax.stop_gradient(x)
 
         # Compute SDE components
-        langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
+        if use_lp:
+            langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x))
+        else:
+            langevin = jnp.zeros(x.shape[0])
         model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
         key, key_gen = jax.random.split(key_gen)
         noise = jnp.clip(jax.random.normal(key, shape=x.shape), -4, 4)
@@ -114,7 +113,10 @@ def per_sample_rnd(
         final_x, _ = aux
         terminal_cost = init_log_prob(final_x) - target_log_prob(final_x)
     else:
-        init_x = jnp.squeeze(target.sample(key, (1,)))
+        # Initialize from provided terminal state if available; otherwise sample from target
+        init_x = terminal_x
+        if init_x is None:
+            init_x = jnp.squeeze(target.sample(key, (1,)))
         key, key_gen = jax.random.split(key_gen)
         aux = (init_x, key)
         aux, per_step_output = jax.lax.scan(
@@ -135,12 +137,14 @@ def rnd(
     initial_density_tuple,
     target,
     num_steps,
+    use_lp,
     stop_grad=False,
     prior_to_target=True,
+    terminal_xs: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
-        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None)
+        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None, 0)
     )(
         seeds,
         model_state,
@@ -148,8 +152,10 @@ def rnd(
         initial_density_tuple,
         target,
         num_steps,
+        use_lp,
         stop_grad,
         prior_to_target,
+        terminal_xs,
     )
 
     return x_0, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs
@@ -163,6 +169,7 @@ def neg_elbo(
     initial_density,
     target_density,
     num_steps,
+    use_lp,
     stop_grad=False,
 ):
     aux = rnd(
@@ -173,6 +180,7 @@ def neg_elbo(
         initial_density,
         target_density,
         num_steps,
+        use_lp,
         stop_grad,
     )
     samples, running_costs, _, terminal_costs = aux

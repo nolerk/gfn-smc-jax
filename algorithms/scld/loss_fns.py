@@ -151,12 +151,13 @@ def sub_traj_rev_logvar(
     forward=True,
     stop_grad=True,
     detach_langevin_pisgrad=True,
+    use_lp=True,
     per_sample_rnd_fn=per_sample_sub_traj_is_weight,
 ):
     sub_traj = traj_start, traj_end, traj_idx, traj_length
 
     w, samples_new = jax.vmap(
-        per_sample_rnd_fn, in_axes=(0, 0, None, None, None, None, None, None, None)
+        per_sample_rnd_fn, in_axes=(0, 0, None, None, None, None, None, None, None, None)
     )(
         keys,
         samples,
@@ -167,6 +168,7 @@ def sub_traj_rev_logvar(
         forward,
         stop_grad,
         detach_langevin_pisgrad,
+        use_lp,
     )
     return jnp.clip(w.var(ddof=0), -1e7, 1e7), (w, samples_new)
 

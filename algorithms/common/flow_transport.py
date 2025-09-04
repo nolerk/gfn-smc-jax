@@ -12,7 +12,7 @@ from algorithms.common import resampling
 
 Array = tp.Array
 FlowApply = tp.FlowApply
-FlowParams = tp.FlowParams
+FlowParams = tp.ModelParams
 LogDensityByStep = tp.LogDensityByStep
 LogDensityNoStep = tp.LogDensityNoStep
 MarkovKernelApply = tp.MarkovKernelApply

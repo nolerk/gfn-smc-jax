@@ -12,11 +12,11 @@ from eval.utils import (
 )
 
 
-def get_eval_fn(rnd, target, target_samples, cfg):
+def get_eval_fn(rnd, target, target_xs, cfg):
     rnd_reverse = jax.jit(partial(rnd, prior_to_target=True))
 
     if cfg.compute_forward_metrics and target.can_sample:
-        rnd_forward = jax.jit(partial(rnd, prior_to_target=False))
+        rnd_forward = jax.jit(partial(rnd, prior_to_target=False, terminal_xs=target_xs))
 
     logger = {
         "KL/elbo": [],
@@ -96,8 +96,8 @@ def get_eval_fn(rnd, target, target_samples, cfg):
 
         for d in cfg.discrepancies:
             logger[f"discrepancies/{d}"].append(
-                getattr(discrepancies, f"compute_{d}")(target_samples, samples, cfg)
-                if target_samples is not None
+                getattr(discrepancies, f"compute_{d}")(target_xs, samples, cfg)
+                if target_xs is not None
                 else jnp.inf
             )
 

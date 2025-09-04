@@ -4,7 +4,6 @@ For further details see: https://arxiv.org/abs/2301.12594 and https://arxiv.org/
 """
 
 from functools import partial
-from time import time
 
 import distrax
 import jax
@@ -41,62 +40,117 @@ def gfn_tb_trainer(cfg, target):
         raise ValueError(f"Reference process {alg_cfg.reference_process} not supported.")
 
     # Initialize the buffer
-    buffer = None
-    if alg_cfg.buffer.use_buffer:
+    use_buffer = alg_cfg.buffer.use_buffer
+    buffer = buffer_state = None
+    if use_buffer:
         buffer = build_terminal_state_buffer(
-            dim,
-            alg_cfg.buffer.max_length_in_batches * alg_cfg.batch_size,
-            sample_with_replacement=alg_cfg.buffer.sample_with_replacement,
+            dim=dim,
+            max_length=alg_cfg.buffer.max_length_in_batches * alg_cfg.batch_size,
+            prioritize_by=alg_cfg.buffer.prioritize_by,
+            target_ess=alg_cfg.buffer.target_ess,
         )
+        buffer_state = buffer.init(dtype=target_samples.dtype, device=target_samples.device)
 
     # Initialize the model
     key, key_gen = jax.random.split(key_gen)
     model_state = init_model(key, dim, alg_cfg)
 
-    loss_fn_jit = jax.jit(jax.grad(loss_fn, 2, has_aux=True), static_argnums=(3, 4, 5, 6, 7, 8, 9))
-
-    rnd_partial_for_eval = partial(
+    rnd_partial_base = partial(
         rnd,
         reference_process=alg_cfg.reference_process,
-        batch_size=cfg.eval_samples,
         aux_tuple=aux_tuple,
         target=target,
         num_steps=cfg.algorithm.num_steps,
         noise_schedule=cfg.algorithm.noise_schedule,
-        stop_grad=True,
+        use_lp=alg_cfg.model.use_lp,
     )
-    eval_fn, logger = get_eval_fn(rnd_partial_for_eval, target, target_samples, cfg)
 
+    # Define the function to be JIT-ed for FWD pass
+    @partial(jax.jit, static_argnames=["loss_type"])
+    @partial(jax.grad, argnums=2, has_aux=True)
+    def loss_fwd_grad_fn(key, model_state, params, loss_type):
+        # prior_to_target=True, terminal_xs=None
+        rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
+        return loss_fn(key, model_state, params, rnd_p, loss_type, terminal_xs=None)
+
+    # --- Define the function to be JIT-ed for BWD pass ---
+    @partial(jax.jit, static_argnames=["loss_type"])
+    @partial(jax.grad, argnums=2, has_aux=True)
+    def loss_bwd_grad_fn(key, model_state, params, loss_type, terminal_xs):
+        # prior_to_target=False, terminal_xs is now an argument
+        rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=False)
+        return loss_fn(key, model_state, params, rnd_p, loss_type, terminal_xs=terminal_xs)
+
+    ### Prepare eval function
+    eval_fn, logger = get_eval_fn(
+        partial(rnd_partial_base, batch_size=cfg.eval_samples), target, target_samples, cfg
+    )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
-    timer = 0
-    for step in range(alg_cfg.iters):
-        # Do sample & learn
-        key, key_gen = jax.random.split(key_gen)
-        iter_time = time()
-        grads, (log_iws, samples) = loss_fn_jit(
-            key,
-            model_state,
-            model_state.params,
-            alg_cfg.loss_type,
-            alg_cfg.reference_process,
-            alg_cfg.batch_size,
-            aux_tuple,
-            target,
-            alg_cfg.num_steps,
-            alg_cfg.noise_schedule,
-        )
-        timer += time() - iter_time
 
-        model_state = model_state.apply_gradients(grads=grads)
+    ### Prefill phase
+    if use_buffer and alg_cfg.buffer.prefill_steps > 0:
+        # Define the function to be JIT-ed for FWD pass
+        @partial(jax.jit, static_argnames=["loss_type"])
+        def loss_fwd_nograd_fn(key, model_state, params, loss_type):
+            # prior_to_target=True, terminal_xs=None
+            rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
+            return loss_fn(key, model_state, params, rnd_p, loss_type, terminal_xs=None)
 
-        if (step % eval_freq == 0) or (step == alg_cfg.iters - 1):
+        assert buffer is not None and buffer_state is not None
+        for _ in range(alg_cfg.buffer.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
-            logger["stats/step"].append(step)
-            logger["stats/wallclock"].append(timer)
-            logger["stats/nfe"].append((step + 1) * alg_cfg.batch_size)
+            _, (log_pbs_over_pfs, log_rewards, losses, samples) = loss_fwd_nograd_fn(
+                key, model_state, model_state.params, alg_cfg.loss_type
+            )
+            buffer_state = buffer.add(buffer_state, samples, log_pbs_over_pfs, log_rewards, losses)
+
+    ### Training phase
+    for it in range(alg_cfg.iters):
+
+        # On-policy training with forward samples
+        if not use_buffer or it % (alg_cfg.buffer.bwd_to_fwd_ratio + 1) == 0:
+            # Sample from model
+            key, key_gen = jax.random.split(key_gen)
+            grads, (log_pbs_over_pfs, log_rewards, losses, samples) = loss_fwd_grad_fn(
+                key, model_state, model_state.params, alg_cfg.loss_type
+            )
+
+            model_state = model_state.apply_gradients(grads=grads)
+
+            # Add samples to buffer
+            if use_buffer:
+                assert buffer is not None and buffer_state is not None
+                buffer_state = buffer.add(
+                    buffer_state, samples, log_pbs_over_pfs, log_rewards, losses
+                )
+
+        # Off-policy training with buffer samples
+        else:
+            assert buffer is not None and buffer_state is not None
+
+            # Sample terminal states from buffer
+            key, key_gen = jax.random.split(key_gen)
+            samples, indices = buffer.sample(buffer_state, key, alg_cfg.batch_size)
+
+            # Get grads with the off-policy samples
+            grads, (log_pbs_over_pfs, log_rewards, losses, _) = loss_bwd_grad_fn(
+                key, model_state, model_state.params, alg_cfg.loss_type, samples
+            )
+            model_state = model_state.apply_gradients(grads=grads)
+
+            # Update scores in buffer if needed
+            if alg_cfg.buffer.update_score:
+                buffer_state = buffer.update_priority(
+                    buffer_state, indices, log_pbs_over_pfs, log_rewards, losses
+                )
+
+        if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
+            key, key_gen = jax.random.split(key_gen)
+            logger["stats/step"].append(it)
+            logger["stats/nfe"].append((it + 1) * alg_cfg.batch_size)  # FIXME
 
             logger.update(eval_fn(model_state, key))
-            print_results(step, logger, cfg)
+            print_results(it, logger, cfg)
 
             if cfg.use_wandb:
                 wandb.log(extract_last_entry(logger))

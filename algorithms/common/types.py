@@ -19,12 +19,13 @@ AcceptanceTuple = Tuple[Array, Array, Array]
 MarkovKernelApply = Callable[[int, RandomKey, Samples], Tuple[Samples, AcceptanceTuple]]
 OptState = optax.OptState
 UpdateFn = optax.TransformUpdateFn
-FlowParams = Any
-FlowApply = Callable[[FlowParams, Samples], Tuple[Samples, Array]]
+ModelParams = Any
+
+FlowApply = Callable[[ModelParams, Samples], Tuple[Samples, Array]]
 LogDensityNoStep = Callable[[Samples], Array]
 InitialSampler = Callable[[RandomKey, int, Tuple[int]], Samples]
-FreeEnergyAndGrad = Callable[[FlowParams, Array, Array, int], Tuple[Array, Array]]
-FreeEnergyEval = Callable[[FlowParams, Array, Array, int], Array]
+FreeEnergyAndGrad = Callable[[ModelParams, Array, Array, int], Tuple[Array, Array]]
+FreeEnergyEval = Callable[[ModelParams, Array, Array, int], Array]
 MNIST_IMAGE_SHAPE = (28, 28, 1)
 
 

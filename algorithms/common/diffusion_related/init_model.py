@@ -1,13 +1,13 @@
 import jax
 import jax.numpy as jnp
 import optax
-from flax.training import train_state
+from flax.training.train_state import TrainState
 
 from algorithms.common.models.pisgrad_net import PISGRADNet
 from utils.helper import flattened_traversal
 
 
-def init_model(key, dim, alg_cfg):
+def init_model(key, dim, alg_cfg) -> TrainState:
     # Define the model
     model = PISGRADNet(**alg_cfg.model)
     # model = LangevinNetwork(**alg_cfg.model)
@@ -43,6 +43,6 @@ def init_model(key, dim, alg_cfg):
             optax.adam(learning_rate=alg_cfg.step_size),
         )
 
-    model_state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
+    model_state = TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
 
     return model_state

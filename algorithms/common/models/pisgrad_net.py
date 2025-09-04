@@ -99,6 +99,8 @@ class PISGRADNet(nn.Module):
     weight_init: float = 1e-8
     bias_init: float = 0.0
 
+    use_lp: bool = True
+
     def setup(self):
         self.timestep_phase = self.param(
             "timestep_phase", nn.initializers.zeros_init(), (1, self.num_hid)
@@ -113,18 +115,20 @@ class PISGRADNet(nn.Module):
             ]
         )
 
-        self.time_coder_grad = nn.Sequential(
-            [nn.Dense(self.num_hid)]
-            + [nn.Sequential([nn.gelu, nn.Dense(self.num_hid)]) for _ in range(self.num_layers)]
-            + [nn.gelu]
-            + [
-                nn.Dense(
-                    self.dim,
-                    kernel_init=nn.initializers.constant(self.weight_init),
-                    bias_init=nn.initializers.constant(self.bias_init),
-                )
-            ]
-        )
+        self.time_coder_grad = None
+        if self.use_lp:
+            self.time_coder_grad = nn.Sequential(
+                [nn.Dense(self.num_hid)]
+                + [nn.Sequential([nn.gelu, nn.Dense(self.num_hid)]) for _ in range(self.num_layers)]
+                + [nn.gelu]
+                + [
+                    nn.Dense(
+                        self.dim,
+                        kernel_init=nn.initializers.constant(self.weight_init),
+                        bias_init=nn.initializers.constant(self.bias_init),
+                    )
+                ]
+            )
 
         self.state_time_net = nn.Sequential(
             [nn.Sequential([nn.Dense(self.num_hid), nn.gelu]) for _ in range(self.num_layers)]
@@ -148,11 +152,13 @@ class PISGRADNet(nn.Module):
             time_array_emb = time_array_emb[0]
 
         t_net1 = self.time_coder_state(time_array_emb)
-        t_net2 = self.time_coder_grad(time_array_emb)
-
         extended_input = jnp.concatenate((input_array, t_net1), axis=-1)
         out_state = self.state_time_net(extended_input)
         out_state = jnp.clip(out_state, -self.outer_clip, self.outer_clip)
+        if not self.use_lp:
+            return out_state
+
+        assert self.time_coder_grad is not None
+        t_net2 = self.time_coder_grad(time_array_emb)
         lgv_term = jnp.clip(lgv_term, -self.inner_clip, self.inner_clip)
-        out_state_p_grad = out_state + t_net2 * lgv_term
-        return out_state_p_grad
+        return out_state + t_net2 * lgv_term

@@ -3,6 +3,8 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
+from algorithms.common.types import Array
+
 
 def per_sample_rnd(
     seed,
@@ -12,8 +14,10 @@ def per_sample_rnd(
     target,
     num_steps,
     noise_schedule,
+    use_lp,
     stop_grad=False,
     prior_to_target=True,
+    terminal_x: Array | None = None,
 ):
     dim, ref_log_prob = sde_tuple
     target_log_prob = target.log_prob
@@ -37,7 +41,10 @@ def per_sample_rnd(
         # Compute SDE components
         sigma_t = sigmas(step)
         sigma_int += sigma_t**2 * dt
-        langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
+        if use_lp:
+            langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
+        else:
+            langevin = jnp.zeros(x.shape[0])
         model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
         key, key_gen = jax.random.split(key_gen)
         noise = jnp.clip(jax.random.normal(key, shape=x.shape), -4, 4)
@@ -78,7 +85,10 @@ def per_sample_rnd(
         x_new = shrink * x + noise * sigma_t * jnp.sqrt(shrink * dt) + 1e-8
 
         # Compute SDE components
-        langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
+        if use_lp:
+            langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
+        else:
+            langevin = jnp.zeros(x.shape[0])
         model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
 
         # Compute (running) Radon-Nikodym derivative components
@@ -99,7 +109,9 @@ def per_sample_rnd(
         final_x, final_sigma, _ = aux
         terminal_cost = ref_log_prob(final_x, jnp.sqrt(final_sigma)) - target_log_prob(final_x)
     else:
-        init_x = jnp.squeeze(target.sample(key, (1,)))
+        init_x = terminal_x
+        if init_x is None:
+            init_x = jnp.squeeze(target.sample(key, (1,)))
         key, key_gen = jax.random.split(key_gen)
         aux = (init_x, jnp.array(0.0), key)
         aux, per_step_output = jax.lax.scan(
@@ -121,12 +133,14 @@ def rnd(
     target,
     num_steps,
     noise_schedule,
+    use_lp,
     stop_grad=False,
     prior_to_target=True,
+    terminal_xs: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
-        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None)
+        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None, None, 0)
     )(
         seeds,
         model_state,
@@ -135,8 +149,10 @@ def rnd(
         target,
         num_steps,
         noise_schedule,
+        use_lp,
         stop_grad,
         prior_to_target,
+        terminal_xs,
     )
 
     return x_0, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs
@@ -151,6 +167,7 @@ def neg_elbo(
     target_density,
     num_steps,
     noise_schedule,
+    use_lp,
     stop_grad=False,
 ):
     aux = rnd(
@@ -162,6 +179,7 @@ def neg_elbo(
         target_density,
         num_steps,
         noise_schedule,
+        use_lp,
         stop_grad,
     )
     samples, running_costs, _, terminal_costs = aux

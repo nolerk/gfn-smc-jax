@@ -9,7 +9,6 @@ import optax
 import wandb
 from flax.training import train_state
 
-import algorithms.common.types as tp
 from algorithms.common import markov_kernel
 from algorithms.common.models.pisgrad_net import PISGRADNet
 from algorithms.common.models.statetime_net import StateTimeNetwork
@@ -35,18 +34,6 @@ from algorithms.scld.scld_utils import (
     make_lr_scheduler,
     print_results,
 )
-
-Array = tp.Array
-FlowApply = tp.FlowApply
-FlowParams = tp.FlowParams
-LogDensityByStep = tp.LogDensityByStep
-LogDensityNoStep = tp.LogDensityNoStep
-MarkovKernelApply = tp.MarkovKernelApply
-AcceptanceTuple = tp.AcceptanceTuple
-RandomKey = tp.RandomKey
-Samples = tp.Samples
-assert_equal_shape = chex.assert_equal_shape
-assert_trees_all_equal_shapes = chex.assert_trees_all_equal_shapes
 
 
 def f_cosine(x):
@@ -134,6 +121,7 @@ def inner_step_simulate(
         sub_traj,
         stop_grad=config.loss != "rev_kl",
         detach_langevin_pisgrad=config.model.get("model_detach_langevin", True),
+        use_lp=config.model.get("use_lp", True),
     )
     model_samples, target_log_probs, model_subtrajectories = aux
 
@@ -514,8 +502,6 @@ def scld_trainer(cfg, target):
         else partial(lnZ_update_vanilla, lr=alg_cfg.logZ_step_size)
     )
 
-    sub_traj_loss = get_loss_fn(alg_cfg.loss)
-
     key, key_gen = jax.random.split(key_gen)
 
     get_schedule_and_prior_fn = partial(
@@ -653,6 +639,8 @@ def scld_trainer(cfg, target):
 
         buffer_state = buffer.init(inital_subtrajs, log_rnds)
 
+        sub_traj_loss = get_loss_fn(alg_cfg.loss)
+
         def sub_traj_loss_short(
             keys,
             samples,
@@ -662,6 +650,7 @@ def scld_trainer(cfg, target):
             sub_traj_start_points,
             sub_traj_end_points,
             sub_traj_indices,
+            use_lp=alg_cfg.get("use_lp", True),
         ):
             annealing_fn, initial_density, _, noise_schedule = get_annealing_fn_and_prior(
                 params, alg_cfg, target.log_prob
@@ -685,6 +674,7 @@ def scld_trainer(cfg, target):
                 sub_traj_length,
                 per_sample_rnd_fn=per_subtraj_log_is,
                 detach_langevin_pisgrad=alg_cfg.get("model_detach_langevin", True),
+                use_lp=use_lp,
             )
 
         loss_fn = jax.vmap(

@@ -19,7 +19,7 @@ from utils.print_utils import print_results
 Array = tp.Array
 UpdateFn = tp.UpdateFn
 OptState = tp.OptState
-FlowParams = tp.FlowParams
+FlowParams = tp.ModelParams
 FlowApply = tp.FlowApply
 LogDensityNoStep = tp.LogDensityNoStep
 InitialSampler = tp.InitialSampler

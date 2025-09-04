@@ -5,19 +5,7 @@ import numpyro.distributions as npdist
 import optax
 from flax import traverse_util
 
-import algorithms.common.types as tp
-
-Array = tp.Array
-FlowApply = tp.FlowApply
-FlowParams = tp.FlowParams
-LogDensityByStep = tp.LogDensityByStep
-LogDensityNoStep = tp.LogDensityNoStep
-MarkovKernelApply = tp.MarkovKernelApply
-AcceptanceTuple = tp.AcceptanceTuple
-RandomKey = tp.RandomKey
-Samples = tp.Samples
-assert_equal_shape = chex.assert_equal_shape
-assert_trees_all_equal_shapes = chex.assert_trees_all_equal_shapes
+from algorithms.common.types import LogDensityNoStep
 
 
 class GeometricAnnealingSchedule(object):

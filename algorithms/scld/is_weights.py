@@ -23,6 +23,7 @@ def per_subtraj_log_is(
     forward=True,
     stop_grad=False,
     detach_langevin_pisgrad=True,
+    use_lp=True,
 ):
     """
     Input: trajectory or subtrajectory and start & endpoints of subtrajectory
@@ -43,12 +44,17 @@ def per_subtraj_log_is(
         sigma_t = noise_schedule(step)
         scale = sigma_t * jnp.sqrt(2 * dt)
         langevin = clip_langevin(jax.grad(log_density_per_step, 1)(step, x), langevin_norm_clip)
-        langevin_detached = jax.lax.stop_gradient(langevin)
+        if use_lp:
+            langevin_model = langevin
+            if detach_langevin_pisgrad:
+                langevin_model = jax.lax.stop_gradient(langevin)
+        else:
+            langevin_model = jnp.zeros(x.shape[0])
         model_output = model_state.apply_fn(
             params,
             x,
             step * jnp.ones(1),
-            langevin_detached if detach_langevin_pisgrad else langevin,
+            langevin_model,
         )
         # Euler-Maruyama integration of the SDE
         fwd_mean = x + sigma_t**2 * (langevin + model_output) * dt
@@ -57,12 +63,17 @@ def per_subtraj_log_is(
         langevin_new = clip_langevin(
             jax.grad(log_density_per_step, 1)(step, x_new), langevin_norm_clip
         )
-        langevin_new_detached = jax.lax.stop_gradient(langevin_new)
+        if use_lp:
+            langevin_new_model = langevin_new
+            if detach_langevin_pisgrad:
+                langevin_new_model = jax.lax.stop_gradient(langevin_new)
+        else:
+            langevin_new_model = jnp.zeros(x_new.shape[0])
         model_output_new = model_state.apply_fn(
             params,
             x_new,
             (step + 1) * jnp.ones(1),
-            langevin_new_detached if detach_langevin_pisgrad else langevin_new,
+            langevin_new_model,
         )
 
         bwd_mean = x_new + sigma_t**2 * (langevin_new - model_output_new) * dt
@@ -96,6 +107,7 @@ def per_sample_sub_traj_is_weight(
     forward=True,
     stop_grad=False,
     detach_langevin_pisgrad=True,
+    use_lp=True,
 ):
     """
     Computes the incremental importance sampling weights for a single sample x.
@@ -126,12 +138,17 @@ def per_sample_sub_traj_is_weight(
         sigma_t = noise_schedule(step)
         scale = sigma_t * jnp.sqrt(2 * dt)
         langevin = clip_langevin(jax.grad(log_density_per_step, 1)(step, x), langevin_norm_clip)
-        langevin_detached = jax.lax.stop_gradient(langevin)
+        if use_lp:
+            langevin_model = langevin
+            if detach_langevin_pisgrad:
+                langevin_model = jax.lax.stop_gradient(langevin)
+        else:
+            langevin_model = jnp.zeros(x.shape[0])
         model_output = model_state.apply_fn(
             params,
             x,
             step * jnp.ones(1),
-            langevin_detached if detach_langevin_pisgrad else langevin,
+            langevin_model,
         )
 
         # Euler-Maruyama integration of the SDE
@@ -145,12 +162,17 @@ def per_sample_sub_traj_is_weight(
         langevin_new = clip_langevin(
             jax.grad(log_density_per_step, 1)(step, x_new), langevin_norm_clip
         )
-        langevin_new_detached = jax.lax.stop_gradient(langevin_new)
+        if use_lp:
+            langevin_new_model = langevin_new
+            if detach_langevin_pisgrad:
+                langevin_new_model = jax.lax.stop_gradient(langevin_new)
+        else:
+            langevin_new_model = jnp.zeros(x_new.shape[0])
         model_output_new = model_state.apply_fn(
             params,
             x_new,
             (step + 1) * jnp.ones(1),
-            langevin_new_detached if detach_langevin_pisgrad else langevin_new,
+            langevin_new_model,
         )
 
         bwd_mean = x_new + sigma_t**2 * (langevin_new - model_output_new) * dt
@@ -179,12 +201,17 @@ def per_sample_sub_traj_is_weight(
         sigma_t = noise_schedule(next_step)
         scale = sigma_t * jnp.sqrt(2 * dt)
         langevin = jax.grad(log_density_per_step, 1)(next_step, x)
-        langevin_detached = jax.lax.stop_gradient(langevin)
+        if use_lp:
+            langevin_model = langevin
+            if detach_langevin_pisgrad:
+                langevin_model = jax.lax.stop_gradient(langevin)
+        else:
+            langevin_model = jnp.zeros(x.shape[0])
         model_output = model_state.apply_fn(
             params,
             x,
             next_step * jnp.ones(1),
-            langevin_detached if detach_langevin_pisgrad else langevin,
+            langevin_model,
         )
 
         # Euler-Maruyama integration of the SDE
@@ -198,12 +225,17 @@ def per_sample_sub_traj_is_weight(
             x_new = jax.lax.stop_gradient(x_new)
 
         langevin_new = jax.grad(log_density_per_step, 1)(next_step, x_new)
-        langevin_new_detached = jax.lax.stop_gradient(langevin_new)
+        if use_lp:
+            langevin_new_model = langevin_new
+            if detach_langevin_pisgrad:
+                langevin_new_model = jax.lax.stop_gradient(langevin_new)
+        else:
+            langevin_new_model = jnp.zeros(x_new.shape[0])
         model_output_new = model_state.apply_fn(
             params,
             x_new,
             step * jnp.ones(1),
-            langevin_new_detached if detach_langevin_pisgrad else langevin_new,
+            langevin_new_model,
         )
         fwd_mean = x_new + sigma_t**2 * (langevin_new + model_output_new) * dt
 
@@ -258,6 +290,7 @@ def sub_traj_is_weights(
     forward=True,
     stop_grad=True,
     detach_langevin_pisgrad=True,
+    use_lp=True,
 ):
     """
     Computes the incremental importance weights of a sub-trajectory, i.e.,
@@ -265,7 +298,7 @@ def sub_traj_is_weights(
     """
     w, aux = jax.vmap(
         per_sample_sub_traj_is_weight,
-        in_axes=(0, 0, None, None, None, None, None, None, None),
+        in_axes=(0, 0, None, None, None, None, None, None, None, None),
     )(
         keys,
         samples,
@@ -276,6 +309,7 @@ def sub_traj_is_weights(
         forward,
         stop_grad,
         detach_langevin_pisgrad,
+        use_lp,
     )
     return (
         w.reshape(
