@@ -23,7 +23,7 @@ def gfn_tb_trainer(cfg, target):
     dim = target.dim
     alg_cfg = cfg.algorithm
 
-    target_samples = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
+    target_xs = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
     # Define initial and target density
     if alg_cfg.reference_process == "pinned_brownian":  # Following PIS
@@ -51,7 +51,7 @@ def gfn_tb_trainer(cfg, target):
             sampling_method=alg_cfg.buffer.sampling_method,
             rank_k=alg_cfg.buffer.rank_k,
         )
-        buffer_state = buffer.init(dtype=target_samples.dtype, device=target_samples.device)
+        buffer_state = buffer.init(dtype=target_xs.dtype, device=target_xs.device)
 
     # Initialize the model
     key, key_gen = jax.random.split(key_gen)
@@ -85,7 +85,7 @@ def gfn_tb_trainer(cfg, target):
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
-        partial(rnd_partial_base, batch_size=cfg.eval_samples), target, target_samples, cfg
+        partial(rnd_partial_base, batch_size=cfg.eval_samples), target, target_xs, cfg
     )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
@@ -116,7 +116,6 @@ def gfn_tb_trainer(cfg, target):
             grads, (log_pbs_over_pfs, log_rewards, losses, samples) = loss_fwd_grad_fn(
                 key, model_state, model_state.params, alg_cfg.loss_type
             )
-
             model_state = model_state.apply_gradients(grads=grads)
 
             # Add samples to buffer
@@ -146,13 +145,41 @@ def gfn_tb_trainer(cfg, target):
                     buffer_state, indices, log_pbs_over_pfs, log_rewards, losses
                 )
 
+        if cfg.use_wandb:
+            wandb.log(
+                {
+                    "loss": jnp.mean(losses),
+                    "logZ_learned": model_state.params["params"]["logZ"],
+                },
+                step=it,
+            )
+
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)
             logger["stats/step"].append(it)
             logger["stats/nfe"].append((it + 1) * alg_cfg.batch_size)  # FIXME
 
             logger.update(eval_fn(model_state, key))
+
+            # Evaluate buffer samples
+            if use_buffer:
+                assert buffer is not None and buffer_state is not None
+                from eval import discrepancies
+
+                buffer_xs, _ = buffer.sample(buffer_state, key, cfg.eval_samples)
+
+                for d in cfg.discrepancies:
+                    if logger.get(f"discrepancies/buffer_samples_{d}", None) is None:
+                        logger[f"discrepancies/buffer_samples_{d}"] = []
+                    logger[f"discrepancies/buffer_samples_{d}"].append(
+                        getattr(discrepancies, f"compute_{d}")(target_xs, buffer_xs, cfg)
+                        if target_xs is not None
+                        else jnp.inf
+                    )
+                viz_dict = target.visualise(samples=buffer_xs, show=cfg.visualize_samples).items()
+                logger.update({f"{key}_buffer_samples": value for key, value in viz_dict})
+
             print_results(it, logger, cfg)
 
             if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger))
+                wandb.log(extract_last_entry(logger), step=it)

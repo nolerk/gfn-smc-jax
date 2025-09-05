@@ -83,8 +83,8 @@ dds: # Denoising Diffusion Sampler
 gfn_tb: # Generative Flow Networks
   max_diffusion: 40.
   initial_scale: 40.
-  step_size: 5e-4
-  logZ_step_size: 1e-1
+  step_size: 1e-3
+  logZ_step_size: 5e-2
   init_logZ: 0.
 
 gbs:  # General Bridge Sampler

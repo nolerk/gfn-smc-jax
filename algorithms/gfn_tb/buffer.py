@@ -21,11 +21,11 @@ def get_priorities(
     batch_size = log_pbs_over_pfs.shape[0]  # type: ignore
     match prioritize_by:
         case "none":
-            return jnp.zeros((batch_size,))
+            return jnp.ones((batch_size,))
         case "reward":
-            return jax.lax.exp(log_rewards)
+            return log_rewards
         case "loss":  # TB loss
-            return losses
+            return losses.log()
         case "uiw":
             log_iws = log_rewards + log_pbs_over_pfs
             if target_ess > 0.0:
@@ -303,10 +303,10 @@ def build_terminal_state_buffer(
 
         if prioritize_by == "piw":
             valid_priorities = binary_search_smoothing(valid_priorities, target_ess)
-            valid_priorities = jax.nn.softmax(valid_priorities, axis=0)
+        weights = jax.nn.softmax(valid_priorities, axis=0)
 
         # Sample indices based on the calculated logits
-        indices = sampling_func(key, valid_priorities, batch_size, sample_with_replacement)
+        indices = sampling_func(key, weights, batch_size, sample_with_replacement)
 
         # Gather the data using the sampled indices
         sampled_states = buffer_state.data.states[indices]  # type: ignore
