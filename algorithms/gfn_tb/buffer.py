@@ -30,7 +30,7 @@ def get_priorities(
             log_iws = log_rewards + log_pbs_over_pfs
             if target_ess > 0.0:
                 log_iws = binary_search_smoothing(log_iws, target_ess)
-            return jax.nn.softmax(log_iws, axis=0)
+            return log_iws
         case "piw":
             log_iws = log_rewards + log_pbs_over_pfs
             return log_iws  # Will be smoothed in the `sample` function

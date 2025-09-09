@@ -200,7 +200,12 @@ def loss_fn(
     model_state: TrainState,
     params: ModelParams,
     rnd_partial: Callable[
-        [RandomKey, TrainState, ModelParams, Array | None],  # key, model_state, params, terminal_xs
+        [
+            RandomKey,  # key
+            TrainState,  # model_state
+            ModelParams,  # params
+            Array | None,  # terminal_xs
+        ],
         tuple[Array, Array, Array, Array],
     ],
     loss_type: Literal["tb", "lv"],

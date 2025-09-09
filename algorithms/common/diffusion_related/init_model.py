@@ -2,9 +2,9 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
+from flax.traverse_util import path_aware_map
 
 from algorithms.common.models.pisgrad_net import PISGRADNet
-from utils.helper import flattened_traversal
 
 
 def init_model(key, dim, alg_cfg) -> TrainState:
@@ -23,17 +23,18 @@ def init_model(key, dim, alg_cfg) -> TrainState:
         additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
         params["params"] = {**params["params"], **additional_params}
 
+        optimizers_map = {
+            "network_optim": optax.adam(learning_rate=alg_cfg.step_size),
+            "logZ_optim": optax.adam(learning_rate=alg_cfg.logZ_step_size),
+        }
+        param_labels = path_aware_map(
+            lambda path, _: "logZ_optim" if "logZ" in path else "network_optim", params
+        )
+        partitioned_optimizer = optax.multi_transform(optimizers_map, param_labels)
         optimizer = optax.chain(
             optax.zero_nans(),
             optax.clip(alg_cfg.grad_clip) if alg_cfg.grad_clip > 0 else optax.identity(),
-            optax.masked(
-                optax.adam(learning_rate=alg_cfg.step_size),
-                mask=flattened_traversal(lambda path, _: path[-1] != "logZ"),
-            ),
-            optax.masked(
-                optax.adam(learning_rate=alg_cfg.logZ_step_size),
-                mask=flattened_traversal(lambda path, _: path[-1] == "logZ"),
-            ),
+            partitioned_optimizer,
         )
 
     else:
