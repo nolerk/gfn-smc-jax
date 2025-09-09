@@ -53,31 +53,31 @@ def binary_search_smoothing(
     target_ess: float = 0.0,
     tol=1e-3,
     max_steps=1000,
-    max_temp=1000.0,
 ) -> chex.Array:
     tempering = lambda x, temp: x / temp
     batch_size = log_iws.shape[0]  # type: ignore
 
+    # Check if tempering is needed
+    if done := ess(log_iws=log_iws) / batch_size >= target_ess:
+        return log_iws
+
     search_min = 1.0
-    search_max = max_temp
-    original_order = (
-        ess(tempering(log_iws, search_min)) < ess(tempering(log_iws, search_max))
-    ).item()
-    # should be True
+    # Search for a suitable search_max
+    search_max = 10.0
+    while ess(tempering(log_iws, search_max)) / batch_size < target_ess:
+        search_max *= 10.0
 
-    done = (ess(log_iws=log_iws) / batch_size >= target_ess).item()
     new_log_iws = jnp.copy(log_iws)
-
     steps = 0
     while not done:
         steps += 1
         mid = (search_min + search_max) / 2
 
         new_log_iws = tempering(log_iws, mid)  # (bs,)
-        new_ess = (ess(log_iws=new_log_iws) / batch_size).item()  # scalar
-        done = abs(new_ess - target_ess) < tol
+        new_ess = ess(log_iws=new_log_iws) / batch_size
+        done = jax.lax.abs(new_ess - target_ess) < tol
 
-        if (new_ess > target_ess) == original_order:
+        if new_ess > target_ess:
             search_max = mid
         else:
             search_min = mid
