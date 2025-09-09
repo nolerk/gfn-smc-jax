@@ -33,14 +33,22 @@ def init_model(key, dim, alg_cfg) -> TrainState:
         partitioned_optimizer = optax.multi_transform(optimizers_map, param_labels)
         optimizer = optax.chain(
             optax.zero_nans(),
-            optax.clip(alg_cfg.grad_clip) if alg_cfg.grad_clip > 0 else optax.identity(),
+            (
+                optax.clip_by_global_norm(alg_cfg.grad_clip)
+                if alg_cfg.grad_clip > 0
+                else optax.identity()
+            ),
             partitioned_optimizer,
         )
 
     else:
         optimizer = optax.chain(
             optax.zero_nans(),
-            optax.clip(alg_cfg.grad_clip) if alg_cfg.grad_clip > 0 else optax.identity(),
+            (
+                optax.clip_by_global_norm(alg_cfg.grad_clip)
+                if alg_cfg.grad_clip > 0
+                else optax.identity()
+            ),
             optax.adam(learning_rate=alg_cfg.step_size),
         )
 
