@@ -43,7 +43,7 @@ def per_sample_rnd(
         beta_t = betas(step)
         sigma_t = jnp.sqrt(2 * beta_t) * init_std
         langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step, sigma_t))
-        model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
+        model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
         key, key_gen = jax.random.split(key_gen)
         noise = jnp.clip(jax.random.normal(key, shape=x.shape), -4, 4)
 
@@ -72,7 +72,7 @@ def per_sample_rnd(
         beta_t = betas(step)
         sigma_t = jnp.sqrt(2 * beta_t) * init_std
         langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step, sigma_t))
-        model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
+        model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
         key, key_gen = jax.random.split(key_gen)
         noise = jnp.clip(jax.random.normal(key, shape=x.shape), -4, 4)
 

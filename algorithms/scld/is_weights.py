@@ -50,7 +50,7 @@ def per_subtraj_log_is(
                 langevin_model = jax.lax.stop_gradient(langevin)
         else:
             langevin_model = jnp.zeros(x.shape[0])
-        model_output = model_state.apply_fn(
+        model_output, _ = model_state.apply_fn(
             params,
             x,
             step * jnp.ones(1),
@@ -69,7 +69,7 @@ def per_subtraj_log_is(
                 langevin_new_model = jax.lax.stop_gradient(langevin_new)
         else:
             langevin_new_model = jnp.zeros(x_new.shape[0])
-        model_output_new = model_state.apply_fn(
+        model_output_new, _ = model_state.apply_fn(
             params,
             x_new,
             (step + 1) * jnp.ones(1),
@@ -144,7 +144,7 @@ def per_sample_sub_traj_is_weight(
                 langevin_model = jax.lax.stop_gradient(langevin)
         else:
             langevin_model = jnp.zeros(x.shape[0])
-        model_output = model_state.apply_fn(
+        model_output, _ = model_state.apply_fn(
             params,
             x,
             step * jnp.ones(1),
@@ -168,7 +168,7 @@ def per_sample_sub_traj_is_weight(
                 langevin_new_model = jax.lax.stop_gradient(langevin_new)
         else:
             langevin_new_model = jnp.zeros(x_new.shape[0])
-        model_output_new = model_state.apply_fn(
+        model_output_new, _ = model_state.apply_fn(
             params,
             x_new,
             (step + 1) * jnp.ones(1),
@@ -207,7 +207,7 @@ def per_sample_sub_traj_is_weight(
                 langevin_model = jax.lax.stop_gradient(langevin)
         else:
             langevin_model = jnp.zeros(x.shape[0])
-        model_output = model_state.apply_fn(
+        model_output, _ = model_state.apply_fn(
             params,
             x,
             next_step * jnp.ones(1),
@@ -231,7 +231,7 @@ def per_sample_sub_traj_is_weight(
                 langevin_new_model = jax.lax.stop_gradient(langevin_new)
         else:
             langevin_new_model = jnp.zeros(x_new.shape[0])
-        model_output_new = model_state.apply_fn(
+        model_output_new, _ = model_state.apply_fn(
             params,
             x_new,
             step * jnp.ones(1),

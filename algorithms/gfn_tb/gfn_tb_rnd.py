@@ -54,7 +54,7 @@ def per_sample_rnd_pinned_brownian(
             langevin = jax.lax.stop_gradient(jax.grad(scaled_target_log_prob)(s, t))
         else:
             langevin = jnp.zeros(dim)
-        model_output = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
+        model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
 
         # Euler-Maruyama integration of the SDE
         fwd_mean = s + model_output * dt
@@ -117,7 +117,7 @@ def per_sample_rnd_pinned_brownian(
             langevin = jax.lax.stop_gradient(jax.grad(scaled_target_log_prob)(s, t))
         else:
             langevin = jnp.zeros(dim)
-        model_output = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
+        model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
 
         fwd_mean = s + model_output * dt
         fwd_scale = sigma_t * jnp.sqrt(dt)

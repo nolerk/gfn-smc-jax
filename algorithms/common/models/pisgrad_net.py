@@ -1,45 +1,5 @@
 import jax.numpy as jnp
 from flax import linen as nn
-import jax
-
-
-def pytorch_kernel_init(key, shape, dtype=jnp.float32):
-    """
-    Kernel initializer that mimics PyTorch's nn.Linear default.
-    It uses a uniform distribution based on fan_in.
-    """
-    # For a kernel of shape (in_features, out_features), fan_in is shape[0]
-    fan_in = shape[0]
-    bound = 1 / jnp.sqrt(fan_in)
-    return jax.random.uniform(key, shape, dtype, minval=-bound, maxval=bound)
-
-
-def pytorch_bias_init(key, shape, fan_in, dtype=jnp.float32):
-    """
-    Bias initializer that mimics PyTorch's nn.Linear default.
-    Requires fan_in to be passed explicitly.
-    """
-    bound = 1 / jnp.sqrt(fan_in)
-    return jax.random.uniform(key, shape, dtype, minval=-bound, maxval=bound)
-
-
-class PyTorchDense(nn.Module):
-    features: int
-
-    @nn.compact
-    def __call__(self, x):
-        # Get the number of input features from the input tensor's shape
-        in_features = x.shape[-1]
-
-        # Apply the custom initializers to the Dense layer
-        return nn.Dense(
-            features=self.features,
-            kernel_init=pytorch_kernel_init,
-            # We must explicitly pass fan_in to the bias initializer
-            bias_init=lambda key, shape, dtype: pytorch_bias_init(
-                key, shape, fan_in=in_features, dtype=dtype
-            ),
-        )(x)
 
 
 class TimeEncoder(nn.Module):
@@ -140,6 +100,7 @@ class PISGRADNet(nn.Module):
     bias_init: float = 0.0
 
     use_lp: bool = True
+    learn_flow: bool = False  # For DB and SubTB
 
     def setup(self):
         self.timestep_phase = self.param(
@@ -149,20 +110,17 @@ class PISGRADNet(nn.Module):
 
         self.time_coder_state = nn.Sequential(
             [
-                PyTorchDense(self.num_hid),
+                nn.Dense(self.num_hid),
                 nn.gelu,
-                PyTorchDense(self.num_hid),
+                nn.Dense(self.num_hid),
             ]
         )
 
         self.time_coder_grad = None
         if self.use_lp:
             self.time_coder_grad = nn.Sequential(
-                [PyTorchDense(self.num_hid)]
-                + [
-                    nn.Sequential([nn.gelu, PyTorchDense(self.num_hid)])
-                    for _ in range(self.num_layers)
-                ]
+                [nn.Dense(self.num_hid)]
+                + [nn.Sequential([nn.gelu, nn.Dense(self.num_hid)]) for _ in range(self.num_layers)]
                 + [nn.gelu]
                 + [
                     nn.Dense(
@@ -174,7 +132,7 @@ class PISGRADNet(nn.Module):
             )
 
         self.state_time_net = nn.Sequential(
-            [nn.Sequential([PyTorchDense(self.num_hid), nn.gelu]) for _ in range(self.num_layers)]
+            [nn.Sequential([nn.Dense(self.num_hid), nn.gelu]) for _ in range(self.num_layers)]
             + [
                 nn.Dense(
                     self.dim,
@@ -183,6 +141,18 @@ class PISGRADNet(nn.Module):
                 )
             ]
         )
+
+        if self.learn_flow:
+            self.logflow_net = nn.Sequential(
+                [nn.Sequential([nn.Dense(self.num_hid), nn.gelu]) for _ in range(self.num_layers)]
+                + [
+                    nn.Dense(
+                        1,
+                        kernel_init=nn.initializers.zeros_init(),
+                        bias_init=nn.initializers.zeros_init(),
+                    )
+                ]
+            )
 
     def get_fourier_features(self, timesteps):
         sin_embed_cond = jnp.sin((self.timestep_coeff * timesteps) + self.timestep_phase)
@@ -204,4 +174,9 @@ class PISGRADNet(nn.Module):
         assert self.time_coder_grad is not None
         t_net2 = self.time_coder_grad(time_array_emb)
         lgv_term = jnp.clip(lgv_term, -self.inner_clip, self.inner_clip)
-        return out_state + t_net2 * lgv_term
+
+        if not self.learn_flow:
+            return out_state + t_net2 * lgv_term, None
+
+        log_flow = self.logflow_net(extended_input)
+        return out_state + t_net2 * lgv_term, log_flow

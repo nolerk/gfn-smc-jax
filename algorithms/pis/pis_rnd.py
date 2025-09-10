@@ -45,7 +45,7 @@ def per_sample_rnd(
             langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
         else:
             langevin = jnp.zeros(x.shape[0])
-        model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
+        model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
         key, key_gen = jax.random.split(key_gen)
         noise = jnp.clip(jax.random.normal(key, shape=x.shape), -4, 4)
 
@@ -89,7 +89,7 @@ def per_sample_rnd(
             langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
         else:
             langevin = jnp.zeros(x.shape[0])
-        model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
+        model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
 
         # Compute (running) Radon-Nikodym derivative components
         running_cost = -0.5 * jnp.square(jnp.linalg.norm(model_output)) * dt

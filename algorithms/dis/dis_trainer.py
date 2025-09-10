@@ -24,9 +24,7 @@ def dis_trainer(cfg, target):
     alg_cfg = cfg.algorithm
 
     # Define initial and target density
-    initial_dist = distrax.MultivariateNormalDiag(
-        jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
-    )
+    initial_dist = distrax.MultivariateNormalDiag(jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std)
     aux_tuple = (alg_cfg.init_std, initial_dist.sample, initial_dist.log_prob)
     target_samples = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 

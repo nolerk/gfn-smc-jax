@@ -61,7 +61,7 @@ def per_sample_rnd(
         # langevin = jax.grad(langevin_score)(x, beta_t, params)
         langevin = stable_langevin(x, beta_t, params)
         langevin_detached = jax.lax.stop_gradient(langevin)
-        model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin_detached)
+        model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin_detached)
 
         # Euler-Maruyama integration of the SDE
         fwd_mean = x + sigma_t**2 * (langevin + model_output) * dt
@@ -75,7 +75,7 @@ def per_sample_rnd(
         # langevin_new = jax.grad(langevin_score)(x_new, beta_t, params)
         langevin_new = stable_langevin(x_new, beta_t, params)
         langevin_new_detached = jax.lax.stop_gradient(langevin_new)
-        model_output_new = model_state.apply_fn(
+        model_output_new, _ = model_state.apply_fn(
             params, x_new, (step + 1) * jnp.ones(1), langevin_new_detached
         )
 
@@ -125,7 +125,7 @@ def per_sample_rnd(
         # langevin_new = jax.grad(langevin_score)(x_new, beta_t, params)
         langevin_new = stable_langevin(x_new, beta_t, params)
         langevin_new_detached = jax.lax.stop_gradient(langevin_new)
-        model_output_new = model_state.apply_fn(
+        model_output_new, _ = model_state.apply_fn(
             params, x_new, step * jnp.ones(1), langevin_new_detached
         )
         fwd_mean = x_new + sigma_t**2 * (langevin_new + model_output_new) * dt
@@ -206,7 +206,7 @@ def per_sample_eval(
         # langevin = jax.grad(langevin_score)(x, beta_t, params)
         langevin = stable_langevin(x, beta_t, params)
         langevin_detached = jax.lax.stop_gradient(langevin)
-        model_output = model_state.apply_fn(params, x, step * jnp.ones(1), langevin_detached)
+        model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin_detached)
 
         # Euler-Maruyama integration of the SDE
         fwd_mean = x + sigma_t**2 * (langevin + model_output) * dt
@@ -214,7 +214,7 @@ def per_sample_eval(
         # langevin_new = jax.grad(langevin_score)(x_new, beta_t, params)
         langevin_new = stable_langevin(x_new, beta_t, params)
         langevin_new_detached = jax.lax.stop_gradient(langevin_new)
-        model_output_new = model_state.apply_fn(
+        model_output_new, _ = model_state.apply_fn(
             params, x_new, (step + 1) * jnp.ones(1), langevin_new_detached
         )
 

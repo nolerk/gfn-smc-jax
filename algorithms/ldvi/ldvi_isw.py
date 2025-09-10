@@ -72,9 +72,10 @@ def per_sample_rnd(
 
         # Backward kernel
         model_input = jnp.concatenate([x, rho_prime])
-        bwd_rho_mean = rho_prime * (1.0 - eta) + 2 * eta * model_state.apply_fn(
+        model_output, _ = model_state.apply_fn(
             params, model_input, step, jax.lax.stop_gradient(langevin_new)
         )
+        bwd_rho_mean = rho_prime * (1.0 - eta) + 2 * eta * model_output
 
         # Evaluate kernels
         fwd_log_prob = log_prob_kernel(rho_prime, fwd_rho_mean, scale)
@@ -110,9 +111,10 @@ def per_sample_rnd(
         # Backward kernel
         model_input = jnp.concatenate([x, rho])
         langevin = jax.grad(langevin_score)(x, beta_t, params)
-        bwd_rho_mean = rho * (1.0 - eta) + 2 * eta * model_state.apply_fn(
+        model_output, _ = model_state.apply_fn(
             params, model_input, step, jax.lax.stop_gradient(langevin)
         )
+        bwd_rho_mean = rho * (1.0 - eta) + 2 * eta * model_output
         key, key_gen = jax.random.split(key_gen)
         rho_prime = sample_kernel(key, bwd_rho_mean, scale)
 
