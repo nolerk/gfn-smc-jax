@@ -61,10 +61,11 @@ def binary_search_smoothing(
     if done := ess(log_iws=log_iws) / batch_size >= target_ess:
         return log_iws
 
+    # Search for a suitable range of search_min and search_max
     search_min = 1.0
-    # Search for a suitable search_max
     search_max = 10.0
     while ess(tempering(log_iws, search_max)) / batch_size < target_ess:
+        search_min *= 10.0
         search_max *= 10.0
 
     new_log_iws = jnp.copy(log_iws)
