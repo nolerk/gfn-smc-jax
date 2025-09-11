@@ -101,10 +101,10 @@ def gfn_tb_trainer(cfg, target):
         assert buffer is not None and buffer_state is not None
         for _ in range(alg_cfg.buffer.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
-            _, (log_pbs_over_pfs, log_rewards, losses, samples) = loss_fwd_nograd_fn(
+            _, (x, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_nograd_fn(
                 key, model_state, model_state.params, alg_cfg.loss_type
             )
-            buffer_state = buffer.add(buffer_state, samples, log_pbs_over_pfs, log_rewards, losses)
+            buffer_state = buffer.add(buffer_state, x, log_pbs_over_pfs, log_rewards, losses)
 
     ### Training phase
     for it in range(alg_cfg.iters):
@@ -113,7 +113,7 @@ def gfn_tb_trainer(cfg, target):
         if not use_buffer or it % (alg_cfg.buffer.bwd_to_fwd_ratio + 1) == 0:
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
-            grads, (log_pbs_over_pfs, log_rewards, losses, samples) = loss_fwd_grad_fn(
+            grads, (x, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_grad_fn(
                 key, model_state, model_state.params, alg_cfg.loss_type
             )
             model_state = model_state.apply_gradients(grads=grads)
@@ -121,9 +121,7 @@ def gfn_tb_trainer(cfg, target):
             # Add samples to buffer
             if use_buffer:
                 assert buffer is not None and buffer_state is not None
-                buffer_state = buffer.add(
-                    buffer_state, samples, log_pbs_over_pfs, log_rewards, losses
-                )
+                buffer_state = buffer.add(buffer_state, x, log_pbs_over_pfs, log_rewards, losses)
 
         # Off-policy training with buffer samples
         else:
@@ -134,7 +132,7 @@ def gfn_tb_trainer(cfg, target):
             samples, indices = buffer.sample(buffer_state, key, alg_cfg.batch_size)
 
             # Get grads with the off-policy samples
-            grads, (log_pbs_over_pfs, log_rewards, losses, _) = loss_bwd_grad_fn(
+            grads, (_, log_pbs_over_pfs, log_rewards, losses) = loss_bwd_grad_fn(
                 key, model_state, model_state.params, alg_cfg.loss_type, samples
             )
             model_state = model_state.apply_gradients(grads=grads)

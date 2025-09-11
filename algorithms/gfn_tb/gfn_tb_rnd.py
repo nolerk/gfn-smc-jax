@@ -32,10 +32,8 @@ def per_sample_rnd_pinned_brownian(
     terminal_x: Array | None = None,
 ):
     dim, _ = sde_tuple
-    target_log_prob = target.log_prob
 
     sigmas = noise_schedule
-    scaled_target_log_prob = lambda x, t: t * target_log_prob(x)
     dt = 1.0 / num_steps
 
     def simulate_prior_to_target(state, per_step_input):
@@ -51,7 +49,8 @@ def per_sample_rnd_pinned_brownian(
 
         # Compute SDE components
         if use_lp:
-            langevin = jax.lax.stop_gradient(jax.grad(scaled_target_log_prob)(s, t))
+            langevin = jax.lax.stop_gradient(jax.grad(target.log_prob)(s))
+            # langevin = langevin * t  # ?
         else:
             langevin = jnp.zeros(dim)
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
@@ -79,7 +78,7 @@ def per_sample_rnd_pinned_brownian(
 
         # Compute importance weight increment
         next_state = (s_next, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s_next)
+        per_step_output = (fwd_log_prob, bwd_log_prob, s)
         return next_state, per_step_output
 
     def simulate_target_to_prior(state, per_step_input):
@@ -114,7 +113,8 @@ def per_sample_rnd_pinned_brownian(
 
         # Compute forward SDE components
         if use_lp:
-            langevin = jax.lax.stop_gradient(jax.grad(scaled_target_log_prob)(s, t))
+            langevin = jax.lax.stop_gradient(jax.grad(target.log_prob)(s))
+            # langevin = langevin * t  # ?
         else:
             langevin = jnp.zeros(dim)
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
@@ -146,11 +146,18 @@ def per_sample_rnd_pinned_brownian(
         )
         final_x = init_x
 
-    fwd_log_prob, bwd_log_prob, x_t = per_step_output
-    stochastic_costs = jnp.zeros_like(fwd_log_prob)
-    terminal_cost = -target_log_prob(final_x)
+    fwd_log_probs, bwd_log_probs, trajectories = per_step_output
+    stochastic_costs = jnp.zeros_like(fwd_log_probs)
+    terminal_costs = -target.log_prob(final_x)
 
-    return final_x, fwd_log_prob, bwd_log_prob, stochastic_costs, terminal_cost
+    return (
+        final_x,
+        fwd_log_probs,
+        bwd_log_probs,
+        stochastic_costs,
+        terminal_costs,
+        trajectories,
+    )
 
 
 def rnd(
@@ -169,7 +176,14 @@ def rnd(
 ):
     seeds = jax.random.split(key, num=batch_size)
     if reference_process == "pinned_brownian":
-        final_x, fwd_log_probs, bwd_log_probs, stochastic_costs, terminal_costs = jax.vmap(
+        (
+            final_x,
+            fwd_log_probs,
+            bwd_log_probs,
+            stochastic_costs,
+            terminal_costs,
+            trajectories,
+        ) = jax.vmap(
             per_sample_rnd_pinned_brownian,
             in_axes=(0, None, None, None, None, None, None, None, None, 0),
         )(
@@ -192,6 +206,8 @@ def rnd(
     else:
         raise ValueError(f"Reference process {reference_process} not supported.")
 
+    # trajectories = jnp.concatenate([trajectories, final_x[:, None]], axis=1)
+
     return final_x, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs
 
 
@@ -212,7 +228,7 @@ def loss_fn(
     terminal_xs: Array | None = None,
 ):
     aux = rnd_partial(key, model_state, params, terminal_xs=terminal_xs)
-    samples, running_costs, _, terminal_costs = aux
+    final_x, running_costs, _, terminal_costs = aux
     log_ratio = running_costs + terminal_costs  # log_pfs - log_pbs - log_rewards
     if loss_type == "tb":
         losses = log_ratio + params["params"]["logZ"]
@@ -222,8 +238,8 @@ def loss_fn(
     losses = jnp.square(losses)
 
     return jnp.mean(losses), (
-        -running_costs,  # log_pbs - log_pfs
+        final_x,
+        jax.lax.stop_gradient(-running_costs),  # log_pbs - log_pfs
         -terminal_costs,  # log_rewards
         jax.lax.stop_gradient(losses),  # losses
-        samples,
     )
