@@ -19,17 +19,38 @@ def init_model(key, dim, alg_cfg) -> TrainState:
         jnp.ones([alg_cfg.batch_size, dim]),
     )
 
-    if alg_cfg.name == "gfn_tb" and alg_cfg.loss_type == "tb":
-        additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
-        params["params"] = {**params["params"], **additional_params}
-
-        optimizers_map = {
-            "network_optim": optax.adam(learning_rate=alg_cfg.step_size),
-            "logZ_optim": optax.adam(learning_rate=alg_cfg.logZ_step_size),
-        }
-        param_labels = path_aware_map(
-            lambda path, _: "logZ_optim" if "logZ" in path else "network_optim", params
+    if "gfn" not in alg_cfg.name:
+        optimizer = optax.chain(
+            optax.zero_nans(),
+            (
+                optax.clip_by_global_norm(alg_cfg.grad_clip)
+                if alg_cfg.grad_clip > 0
+                else optax.identity()
+            ),
+            optax.adam(learning_rate=alg_cfg.step_size),
         )
+    else:
+        if alg_cfg.name == "gfn_tb" and alg_cfg.loss_type == "tb":
+            additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
+            params["params"] = {**params["params"], **additional_params}
+
+            optimizers_map = {
+                "network_optim": optax.adam(learning_rate=alg_cfg.step_size),
+                "logZ_optim": optax.adam(learning_rate=alg_cfg.logZ_step_size),
+            }
+            param_labels = path_aware_map(
+                lambda path, _: "logZ_optim" if "logZ" in path else "network_optim", params
+            )
+        elif alg_cfg.name == "gfn_subtb":
+            optimizers_map = {
+                "network_optim": optax.adam(learning_rate=alg_cfg.step_size),
+                "logflow_optim": optax.adam(learning_rate=alg_cfg.logflow_step_size),
+            }
+            param_labels = path_aware_map(
+                lambda path, _: "logflow_optim" if "logflow_net" in path else "network_optim",
+                params,
+            )
+
         partitioned_optimizer = optax.multi_transform(optimizers_map, param_labels)
         optimizer = optax.chain(
             optax.zero_nans(),
@@ -39,17 +60,6 @@ def init_model(key, dim, alg_cfg) -> TrainState:
                 else optax.identity()
             ),
             partitioned_optimizer,
-        )
-
-    else:
-        optimizer = optax.chain(
-            optax.zero_nans(),
-            (
-                optax.clip_by_global_norm(alg_cfg.grad_clip)
-                if alg_cfg.grad_clip > 0
-                else optax.identity()
-            ),
-            optax.adam(learning_rate=alg_cfg.step_size),
         )
 
     model_state = TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)

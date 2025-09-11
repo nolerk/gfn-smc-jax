@@ -89,15 +89,20 @@ def get_train_fn(alg_name):
 
         return dds_trainer
 
+    elif alg_name == "gbs":
+        from algorithms.gbs.gbs_trainer import gbs_trainer
+
+        return gbs_trainer
+
     elif alg_name == "gfn_tb":
         from algorithms.gfn_tb.gfn_tb_trainer import gfn_tb_trainer
 
         return gfn_tb_trainer
 
-    elif alg_name == "gbs":
-        from algorithms.gbs.gbs_trainer import gbs_trainer
+    elif alg_name == "gfn_subtb":
+        from algorithms.gfn_subtb.gfn_subtb_trainer import gfn_subtb_trainer
 
-        return gbs_trainer
+        return gfn_subtb_trainer
 
     else:
         raise ValueError(f"No algorithm named {alg_name}.")

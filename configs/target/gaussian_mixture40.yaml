@@ -85,13 +85,20 @@ gbs:  # General Bridge Sampler
   initial_scale: 40.
   step_size: 5e-4
 
-gfn_tb: # Generative Flow Networks
+gfn_tb: # Trajectory Balance
   reference_process: pinned_brownian  # ou or pinned_brownian
   initial_scale: 10.  # only used if reference_process is ou
   max_diffusion: 10.
   step_size: 1e-3
   logZ_step_size: 5e-2
   init_logZ: 0.
+
+gfn_subtb: # Sub-Trajectory Balance
+  reference_process: pinned_brownian  # ou or pinned_brownian
+  initial_scale: 10.  # only used if reference_process is ou
+  max_diffusion: 10.
+  step_size: 1e-3
+  logflow_step_size: 1e-2
 
 all: # Parameters that are shared between all algorithms
   batch_size: 2000

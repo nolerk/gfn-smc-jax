@@ -142,6 +142,7 @@ class PISGRADNet(nn.Module):
             ]
         )
 
+        self.logflow_net = None
         if self.learn_flow:
             self.logflow_net = nn.Sequential(
                 [nn.Sequential([nn.Dense(self.num_hid), nn.gelu]) for _ in range(self.num_layers)]
@@ -168,15 +169,16 @@ class PISGRADNet(nn.Module):
         extended_input = jnp.concatenate((input_array, t_net1), axis=-1)
         out_state = self.state_time_net(extended_input)
         out_state = jnp.clip(out_state, -self.outer_clip, self.outer_clip)
-        if not self.use_lp:
-            return out_state
 
-        assert self.time_coder_grad is not None
-        t_net2 = self.time_coder_grad(time_array_emb)
-        lgv_term = jnp.clip(lgv_term, -self.inner_clip, self.inner_clip)
+        if self.use_lp:
+            assert self.time_coder_grad is not None
+            t_net2 = self.time_coder_grad(time_array_emb)
+            lgv_term = jnp.clip(lgv_term, -self.inner_clip, self.inner_clip)
+            out_state = out_state + t_net2 * lgv_term
 
-        if not self.learn_flow:
-            return out_state + t_net2 * lgv_term, None
+        log_flow = None
+        if self.learn_flow:
+            assert self.logflow_net is not None
+            log_flow = self.logflow_net(extended_input).squeeze(-1)
 
-        log_flow = self.logflow_net(extended_input)
-        return out_state + t_net2 * lgv_term, log_flow
+        return out_state, log_flow
