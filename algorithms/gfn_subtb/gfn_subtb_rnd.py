@@ -41,14 +41,12 @@ def per_sample_rnd_pinned_brownian(
     terminal_x: Array | None = None,
 ):
     dim, _ = sde_tuple
-
-    sigmas = noise_schedule
     dt = 1.0 / num_steps
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
         step = per_step_input
-        sigma_t = sigmas(step)
+        sigma_t = noise_schedule(step)
 
         step = step.astype(jnp.float32)
         t = step / num_steps
@@ -103,7 +101,7 @@ def per_sample_rnd_pinned_brownian(
     def simulate_target_to_prior(state, per_step_input):
         s_next, key_gen = state
         step = per_step_input
-        sigma_t = sigmas(step)
+        sigma_t = noise_schedule(step)
 
         step = step.astype(jnp.float32)
         t = step / num_steps

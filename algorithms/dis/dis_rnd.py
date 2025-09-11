@@ -3,6 +3,8 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
+from algorithms.common.types import Array
+
 
 def per_sample_rnd(
     seed,
@@ -14,6 +16,7 @@ def per_sample_rnd(
     noise_schedule,
     stop_grad=False,
     prior_to_target=True,
+    terminal_x: Array | None = None,
 ):
     init_std, init_sampler, init_log_prob = aux_tuple
     target_log_prob = target.log_prob
@@ -22,7 +25,6 @@ def per_sample_rnd(
         tr = t / T
         return sigma_t * ((1 - tr) * target_log_prob(x) + tr * initial_log_prob(x))
 
-    betas = noise_schedule
     langevin_init = partial(
         langevin_init_fn,
         T=num_steps,
@@ -40,7 +42,7 @@ def per_sample_rnd(
             x = jax.lax.stop_gradient(x)
 
         # Compute SDE components
-        beta_t = betas(step)
+        beta_t = noise_schedule(step)
         sigma_t = jnp.sqrt(2 * beta_t) * init_std
         langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step, sigma_t))
         model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
@@ -69,7 +71,7 @@ def per_sample_rnd(
             x = jax.lax.stop_gradient(x)
 
         # Compute SDE components
-        beta_t = betas(step)
+        beta_t = noise_schedule(step)
         sigma_t = jnp.sqrt(2 * beta_t) * init_std
         langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step, sigma_t))
         model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
@@ -103,7 +105,9 @@ def per_sample_rnd(
         final_x, _ = aux
         terminal_cost = init_log_prob(init_x) - target_log_prob(final_x)
     else:
-        init_x = jnp.squeeze(target.sample(key, (1,)))
+        init_x = terminal_x
+        if init_x is None:
+            init_x = jnp.squeeze(target.sample(key, (1,)))
         dim = init_x.shape[0]
         key, key_gen = jax.random.split(key_gen)
         aux = (init_x, key)
@@ -128,10 +132,11 @@ def rnd(
     noise_schedule,
     stop_grad=False,
     prior_to_target=True,
+    terminal_xs: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
-        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None)
+        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None, 0)
     )(
         seeds,
         model_state,
@@ -142,6 +147,7 @@ def rnd(
         noise_schedule,
         stop_grad,
         prior_to_target,
+        terminal_xs,
     )
 
     return x_0, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs

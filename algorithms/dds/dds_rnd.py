@@ -4,15 +4,13 @@ import jax.numpy as jnp
 from algorithms.common.types import Array
 
 
-def cos_sq_fn_step_scheme(n_steps, noise_scale=1.0, s=0.008, dtype=jnp.float32):
+def cos_sq_fn_step_scheme(n_steps, s=0.008, dtype=jnp.float32):
     pre_phase = jnp.linspace(0, 1, n_steps, dtype=dtype)
     phase = ((pre_phase + s) / (1 + s)) * jnp.pi * 0.5
 
     dts = jnp.cos(phase) ** 4
     dts /= dts.sum()
-    dts_out = noise_scale * jnp.clip(
-        jnp.concatenate((jnp.array([0]), jnp.cumsum(dts))), 0, 0.999999
-    )
+    dts_out = jnp.concatenate((jnp.array([0]), jnp.cumsum(dts)))
     return dts_out[1:] - dts_out[:-1]
 
 
@@ -32,12 +30,12 @@ def per_sample_rnd(
     target_log_prob = target.log_prob
 
     langevin_init = lambda x: target_log_prob(x)
-    betas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)[::-1]
+    betas = cos_sq_fn_step_scheme(num_steps)[::-1]
 
     def simulate_prior_to_target(state, per_step_input):
         x, key_gen = state
         step = per_step_input
-        beta_t = jnp.clip(jnp.sqrt(betas[step]), 0, 1)
+        beta_t = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
         alpha_t = jnp.sqrt(1 - beta_t**2)
         step = step.astype(jnp.float32)
         if stop_grad:

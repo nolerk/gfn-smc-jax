@@ -36,8 +36,6 @@ def per_sample_rnd(
         beta = step / num_steps
         return beta * target_log_prob(x) + (1 - beta) * initial_log_prob(x)
 
-    sigmas = noise_schedule
-
     langevin_score = partial(
         langevin_score_fn, initial_log_prob=prior_log_prob, target_log_prob=target_log_prob
     )
@@ -56,7 +54,7 @@ def per_sample_rnd(
             x = jax.lax.stop_gradient(x)
 
         # Compute SDE components
-        sigma_t = sigmas(step)
+        sigma_t = noise_schedule(step)
         scale = sigma_t * jnp.sqrt(2 * dt)
         fwd_langevin = jax.grad(langevin_score)(x, step)
         fwd_langevin_detached = jax.lax.stop_gradient(fwd_langevin)
@@ -102,7 +100,7 @@ def per_sample_rnd(
             x = jax.lax.stop_gradient(x)
 
         # Compute SDE components
-        sigma_t = sigmas(next_step)
+        sigma_t = noise_schedule(next_step)
         scale = sigma_t * jnp.sqrt(2 * dt)
         bwd_langevin_new = jax.grad(langevin_score)(x, step + 1)
         bwd_langevin_new_detached = jax.lax.stop_gradient(bwd_langevin_new)

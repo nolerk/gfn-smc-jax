@@ -73,10 +73,12 @@ pis: # Path Integral Sampler
   step_size: 5e-4
 
 dis: # Time-reversed Diffusion Sampler
+  max_diffusion: 10.
   initial_scale: 40.
   step_size: 5e-4
 
 dds: # Denoising Diffusion Sampler
+  noise_scale: 10.
   initial_scale: 40.
   step_size: 5e-4
 

@@ -82,4 +82,4 @@ def dds_trainer(cfg, target):
             print_results(step, logger, cfg)
 
             if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger))
+                wandb.log(extract_last_entry(logger), step=step)

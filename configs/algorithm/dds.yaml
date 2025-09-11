@@ -7,12 +7,10 @@ init_std: ${target.dds.initial_scale}
 num_steps: 128
 loss: "elbo"  # Currently only supports 'elbo'
 grad_clip: 1.
-noise_scale: 6.
-max_diffusion: 6.  # Note: this is not used in the algorithm
+noise_scale: ${target.dds.noise_scale}
 
 defaults:
   - model: pisgrad_net
-  - noise_schedule: cosine  # Note: this is not used in the algorithm; TODO: make DDS noise schedule configurable
 
 model:
   use_lp: True
