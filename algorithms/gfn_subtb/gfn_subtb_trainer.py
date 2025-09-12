@@ -27,15 +27,14 @@ def gfn_subtb_trainer(cfg, target):
 
     # Define initial and target density
     if alg_cfg.reference_process == "pinned_brownian":  # Following PIS
-        normal_log_prob = lambda x, sigma: distrax.MultivariateNormalDiag(
-            jnp.zeros(dim), jnp.ones(dim) * sigma
-        ).log_prob(x)
-        aux_tuple = (dim, normal_log_prob)
-    elif alg_cfg.reference_process == "ou":
-        initial_dist = distrax.MultivariateNormalDiag(  # Following DIS
+        aux_tuple = (dim,)
+    elif alg_cfg.reference_process in ["ou", "ou_dds"]:  # DIS or DDS
+        initial_dist = distrax.MultivariateNormalDiag(
             jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
         )
         aux_tuple = (alg_cfg.init_std, initial_dist.sample, initial_dist.log_prob)
+        if alg_cfg.reference_process == "ou_dds":
+            aux_tuple = (*aux_tuple, alg_cfg.noise_scale)  # DDS
     else:
         raise ValueError(f"Reference process {alg_cfg.reference_process} not supported.")
 

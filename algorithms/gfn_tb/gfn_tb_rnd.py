@@ -39,10 +39,9 @@ def per_sample_rnd_pinned_brownian(
         s, key_gen = state
         step = per_step_input
         sigma_t = noise_schedule(step)
-
-        step = step.astype(jnp.float32)
-        t = (step / num_steps).astype(jnp.float32)
-        t_next = (step + 1) / num_steps
+        _step = step.astype(jnp.float32)
+        t = _step / num_steps
+        t_next = (_step + 1) / num_steps
 
         s = jax.lax.stop_gradient(s)
 
@@ -53,6 +52,8 @@ def per_sample_rnd_pinned_brownian(
         else:
             langevin = jnp.zeros(dim)
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
+
+        # Euler-Maruyama integration of the SDE
         fwd_mean = s + model_output * dt
         fwd_scale = sigma_t * jnp.sqrt(dt)
         s_next, key_gen = sample_kernel(key_gen, fwd_mean, fwd_scale)
@@ -79,10 +80,9 @@ def per_sample_rnd_pinned_brownian(
         s_next, key_gen = state
         step = per_step_input
         sigma_t = noise_schedule(step)
-
-        step = step.astype(jnp.float32)
-        t = (step / num_steps).astype(jnp.float32)
-        t_next = (step + 1) / num_steps
+        _step = step.astype(jnp.float32)
+        t = _step / num_steps
+        t_next = (_step + 1) / num_steps
 
         s_next = jax.lax.stop_gradient(s_next)
 
@@ -111,6 +111,7 @@ def per_sample_rnd_pinned_brownian(
         else:
             langevin = jnp.zeros(dim)
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
+
         fwd_mean = s + model_output * dt
         fwd_scale = sigma_t * jnp.sqrt(dt)
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
@@ -178,20 +179,17 @@ def per_sample_rnd_ou_dds(
     prior_to_target=True,
     terminal_x: Array | None = None,
 ):
-    # raise NotImplementedError("OU-DDS reference process has to be checked more thoroughly.")
     init_std, init_sampler, init_log_prob, noise_scale = aux_tuple
     betas = cos_sq_fn_step_scheme(num_steps)
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
         step = per_step_input
-        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
-        sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
+        t = (step / num_steps).astype(jnp.float32)
 
         s = jax.lax.stop_gradient(s)
 
         # Compute forward SDE components
-        t = (step / num_steps).astype(jnp.float32)
         if use_lp:
             langevin = jax.lax.stop_gradient(jax.grad(target.log_prob)(s))
             # langevin = langevin * t  # ?
@@ -200,6 +198,8 @@ def per_sample_rnd_ou_dds(
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
 
         # Exponential integration of the SDE
+        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
+        sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
         s_next, key_gen = sample_kernel(key_gen, fwd_mean, fwd_scale)
@@ -207,7 +207,9 @@ def per_sample_rnd_ou_dds(
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
 
         # Compute backward SDE components
-        sqrt_at_next = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
+        sqrt_at_next = jnp.clip(
+            noise_scale * jnp.sqrt(betas[step]), 0, 1  # shouldn't we use step + 1?
+        )
         sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
         bwd_scale = sqrt_at_next * init_std
@@ -221,41 +223,34 @@ def per_sample_rnd_ou_dds(
     def simulate_target_to_prior(state, per_step_input):
         s_next, key_gen = state
         step = per_step_input
-        sqrt_at_next = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
-        sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
+        t = (step / num_steps).astype(jnp.float32)
 
         s_next = jax.lax.stop_gradient(s_next)
 
         # Compute backward SDE components
+        sqrt_at_next = jnp.clip(
+            noise_scale * jnp.sqrt(betas[step]), 0, 1  # shouldn't we use step + 1?
+        )
+        sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
         bwd_scale = sqrt_at_next * init_std
         s, key_gen = sample_kernel(key_gen, bwd_mean, bwd_scale)
         s = jax.lax.stop_gradient(s)
-        bwd_log_prob = jax.lax.cond(
-            bwd_scale <= 0.0,
-            lambda _: jnp.array(0.0),
-            lambda args: log_prob_kernel(args[0], args[1], args[2]),
-            operand=(s, bwd_mean, bwd_scale),
-        )
+        bwd_log_prob = log_prob_kernel(s, bwd_mean, bwd_scale)
 
         # Compute forward SDE components
-        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
-        sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
-        t = (step / num_steps).astype(jnp.float32)
         if use_lp:
             langevin = jax.lax.stop_gradient(jax.grad(target.log_prob)(s))
             # langevin = langevin * t  # ?
         else:
             langevin = jnp.zeros(s.shape[0])
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
+
+        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
+        sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
-        fwd_log_prob = jax.lax.cond(
-            fwd_scale <= 0.0,
-            lambda _: jnp.array(0.0),
-            lambda args: log_prob_kernel(args[0], args[1], args[2]),
-            operand=(s_next, fwd_mean, fwd_scale),
-        )
+        fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
 
         # Return next state and per-step output
         next_state = (s, key_gen)
@@ -312,15 +307,12 @@ def rnd(
     terminal_xs: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
-    # Map reference process names to their corresponding functions
-    process_functions = {
+    per_sample_fn = {
         "pinned_brownian": per_sample_rnd_pinned_brownian,
         "ou": per_sample_rnd_ou,
         "ou_dds": per_sample_rnd_ou_dds,
-    }
+    }[reference_process]
 
-    # Get the appropriate function and execute it
-    per_sample_fn = process_functions[reference_process]
     (
         final_x,
         fwd_log_probs,
