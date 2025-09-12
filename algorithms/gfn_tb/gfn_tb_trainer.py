@@ -65,22 +65,28 @@ def gfn_tb_trainer(cfg, target):
         noise_schedule=cfg.algorithm.noise_schedule,
         use_lp=alg_cfg.model.use_lp,
     )
+    loss_fn_base = partial(loss_fn, loss_type=alg_cfg.loss_type)
 
     # Define the function to be JIT-ed for FWD pass
-    @partial(jax.jit, static_argnames=["loss_type"])
+    @partial(jax.jit)
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_fwd_grad_fn(key, model_state, params, loss_type):
+    def loss_fwd_grad_fn(key, model_state, params):
         # prior_to_target=True, terminal_xs=None
         rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-        return loss_fn(key, model_state, params, rnd_p, loss_type, terminal_xs=None)
+        return loss_fn_base(key, model_state, params, rnd_p)
 
     # --- Define the function to be JIT-ed for BWD pass ---
-    @partial(jax.jit, static_argnames=["loss_type"])
+    @partial(jax.jit)
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_bwd_grad_fn(key, model_state, params, loss_type, terminal_xs):
+    def loss_bwd_grad_fn(key, model_state, params, terminal_xs):
         # prior_to_target=False, terminal_xs is now an argument
-        rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=False)
-        return loss_fn(key, model_state, params, rnd_p, loss_type, terminal_xs=terminal_xs)
+        rnd_p = partial(
+            rnd_partial_base,
+            batch_size=alg_cfg.batch_size,
+            prior_to_target=False,
+            terminal_xs=terminal_xs,
+        )
+        return loss_fn_base(key, model_state, params, rnd_p)
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
@@ -91,17 +97,17 @@ def gfn_tb_trainer(cfg, target):
     ### Prefill phase
     if use_buffer and alg_cfg.buffer.prefill_steps > 0:
         # Define the function to be JIT-ed for FWD pass
-        @partial(jax.jit, static_argnames=["loss_type"])
-        def loss_fwd_nograd_fn(key, model_state, params, loss_type):
+        @partial(jax.jit)
+        def loss_fwd_nograd_fn(key, model_state, params):
             # prior_to_target=True, terminal_xs=None
             rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-            return loss_fn(key, model_state, params, rnd_p, loss_type, terminal_xs=None)
+            return loss_fn_base(key, model_state, params, rnd_p)
 
         assert buffer is not None and buffer_state is not None
         for _ in range(alg_cfg.buffer.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
             _, (x, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_nograd_fn(
-                key, model_state, model_state.params, alg_cfg.loss_type
+                key, model_state, model_state.params
             )
             buffer_state = buffer.add(buffer_state, x, log_pbs_over_pfs, log_rewards, losses)
 
@@ -113,7 +119,7 @@ def gfn_tb_trainer(cfg, target):
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
             grads, (x, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_grad_fn(
-                key, model_state, model_state.params, alg_cfg.loss_type
+                key, model_state, model_state.params
             )
             model_state = model_state.apply_gradients(grads=grads)
 
@@ -132,7 +138,7 @@ def gfn_tb_trainer(cfg, target):
 
             # Get grads with the off-policy samples
             grads, (_, log_pbs_over_pfs, log_rewards, losses) = loss_bwd_grad_fn(
-                key, model_state, model_state.params, alg_cfg.loss_type, samples
+                key, model_state, model_state.params, samples
             )
             model_state = model_state.apply_gradients(grads=grads)
 

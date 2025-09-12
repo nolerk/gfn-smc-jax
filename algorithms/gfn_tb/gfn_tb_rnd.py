@@ -346,19 +346,10 @@ def loss_fn(
     key: RandomKey,
     model_state: TrainState,
     params: ModelParams,
-    rnd_partial: Callable[
-        [
-            RandomKey,  # key
-            TrainState,  # model_state
-            ModelParams,  # params
-            Array | None,  # terminal_xs
-        ],
-        tuple[Array, Array, Array, Array],
-    ],
+    rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, Array, Array, Array]],
     loss_type: Literal["tb", "lv"],
-    terminal_xs: Array | None = None,
 ):
-    aux = rnd_partial(key, model_state, params, terminal_xs=terminal_xs)
+    aux = rnd_partial(key, model_state, params)
     final_x, running_costs, _, terminal_costs = aux
     log_ratio = running_costs + terminal_costs  # log_pfs - log_pbs - log_rewards
     if loss_type == "tb":
