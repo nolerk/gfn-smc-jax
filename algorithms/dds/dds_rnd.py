@@ -5,13 +5,10 @@ from algorithms.common.types import Array
 
 
 def cos_sq_fn_step_scheme(n_steps, s=0.008, dtype=jnp.float32):
-    pre_phase = jnp.linspace(0, 1, n_steps, dtype=dtype)
+    pre_phase = jnp.linspace(0, 1, n_steps + 1, dtype=dtype)
     phase = ((pre_phase + s) / (1 + s)) * jnp.pi * 0.5
-
     dts = jnp.cos(phase) ** 4
-    dts /= dts.sum()
-    dts_out = jnp.concatenate((jnp.array([0]), jnp.cumsum(dts)))
-    return dts_out[1:] - dts_out[:-1]
+    return dts / dts.sum()
 
 
 def per_sample_rnd(
