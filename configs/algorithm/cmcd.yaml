@@ -3,7 +3,7 @@ name: cmcd
 step_size: ${target.cmcd.step_size}
 batch_size: ${target.all.batch_size}
 iters: 40000
-init_std: ${target.cmcd.initial_scale}
+init_std: ${target.cmcd.init_std}
 num_steps: 128
 loss: "elbo"  # Currently only supports 'elbo'
 grad_clip: 1.

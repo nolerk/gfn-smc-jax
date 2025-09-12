@@ -3,7 +3,7 @@ name: cmcd2
 step_size: ${target.cmcd.step_size}
 batch_size: ${target.all.batch_size}
 iters: 8000
-init_std: ${target.cmcd.initial_scale}
+init_std: ${target.cmcd.init_std}
 num_steps: 128
 loss: "elbo"
 

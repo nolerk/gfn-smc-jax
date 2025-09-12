@@ -14,50 +14,50 @@ fn:
 # ----------------------------------------
 
 mfvi: # Gaussian Mean Field Variational Inference
-  initial_scale:
+  init_std:
   step_size:
 
 gmmvi: # Gaussian Mixture Model Variational Inference
-  initial_scale:
+  init_std:
 
 hmc:  # Hamilton Monte Carlo
   hmc_step_size: [0.01,0.001] #[0.01,0.1] 
 
 smc: # Sequential Monte Carlo Sampler
-  initial_scale: 2
+  init_std: 2
 
 smc_advanced:
-  initial_scale: 0.1
+  init_std: 0.1
   target_ess: 0.50
   hmc_step_size: [0.01, 0.05]
 
 flow_transport: # Flow Transport Methods (AFT/CRAFT)
-  initial_scale: 0.1
+  init_std: 0.1
   step_size:
 
 fab: # Flow Annealed Importance Sampling Bootstrap
-  initial_scale: 2
+  init_std: 2
   step_size: 0.001
 
 cmcd: # CMCD
-  initial_scale: 2 #0.1
+  init_std: 2 #0.1
   max_diffusion: 0.03
   step_size: 1e-4
 
 scld:
-  initial_scale: 2 #0.1
+  init_std: 2 #0.1
   max_diffusion: 0.03
   step_size: 1e-3
   annealing_step_size: 1e-3
   n_sub_traj: 4
 
 dds: # Denoising Diffusion Sampler
-  initial_scale: 2
+  init_std: 2
   step_size: 0.001
   max_diffusion: 0.3
 
 dis: # DIS
-  initial_scale: 2
+  init_std: 2
   step_size: 0.001
   max_diffusion: 0.3
 
@@ -66,16 +66,16 @@ pis: # Path Integral Sampler
   max_diffusion: 0.3
 
 ud_langevin:  # Underdamped Langevin Methods (UHA/LDVI)
-  initial_scale:
+  init_std:
   step_size:
 
 od_langevin:  # Overdamped Langevin Methods (ULA/MCD/CMCD)
-  initial_scale:
+  init_std:
   step_size:
 
 gfn_tb: # Generative Flow Networks
   reference_process: pinned_brownian  # ou or pinned_brownian
-  initial_scale: 0.3  # only used if reference_process is ou
+  init_std: 0.3  # only used if reference_process is ou
   max_diffusion: 2.0
   step_size: 1e-3
   logZ_step_size: 5e-2

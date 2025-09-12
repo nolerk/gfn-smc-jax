@@ -9,7 +9,7 @@ free_energy_iters: 400
 stopping_criterion: 'time'
 
 init_mean: 0.
-init_std: ${target.flow_transport.initial_scale}
+init_std: ${target.flow_transport.init_std}
 
 defaults:
   - mcmc/hmc

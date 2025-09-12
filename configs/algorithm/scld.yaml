@@ -3,7 +3,7 @@ name: scld
 num_steps: 128  # Total number of steps / bridges. Defines the number of steps per sub-trajectory as n_steps / n_steps_per_traj
 n_sub_traj: ${target.scld.n_sub_traj} # 1 means no subtrajectories
 batch_size: ${target.all.batch_size}
-init_std: ${target.scld.initial_scale}  # Standard deviation of the prior distribution
+init_std: ${target.scld.init_std}  # Standard deviation of the prior distribution
 max_diffusion: ${target.scld.max_diffusion} # the max_diffusion supplied to noise schedule
 
 grad_clip: 1.  # Value for L2 Gradient clipping. If negative, no gradient clipping is applied. 1.0 is good default

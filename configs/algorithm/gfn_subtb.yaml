@@ -9,8 +9,9 @@ n_chunks: 5
 partial_energy: True
 logflow_step_size: ${target.gfn_subtb.logflow_step_size}
 reference_process: pinned_brownian  # ou or pinned_brownian
-init_std: ${target.gfn_subtb.initial_scale}  # for ou
-max_diffusion: ${target.gfn_subtb.max_diffusion}
+init_std: ${target.gfn_tb.init_std}  # for ou
+max_diffusion: ${target.gfn_tb.max_diffusion}  # for pinned_brownian or ou
+noise_scale: ${target.gfn_tb.noise_scale}  # for ou_dds
 
 defaults:
   - model: pisgrad_net

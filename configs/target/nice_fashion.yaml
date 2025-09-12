@@ -14,43 +14,43 @@ fn:
 # ----------------------------------------
 
 mfvi: # Gaussian Mean Field Variational Inference
-  initial_scale: 5.
+  init_std: 5.
   step_size: 1e-3
 
 gmmvi: # Gaussian Mixture Model Variational Inference
-  initial_scale: 5.
+  init_std: 5.
 
 nfvi: # Normalizing Flow Variational Inference
-  initial_scale: 5.
+  init_std: 5.
   step_size: 1e-3
 
 hmc:  # Hamilton Monte Carlo
   hmc_step_size: [0.5, 0.5]
 
 smc: # Sequential Monte Carlo Sampler
-  initial_scale: 5.
+  init_std: 5.
 
 flow_transport: # Flow Transport Methods (AFT/CRAFT)
-  initial_scale: 5.
+  init_std: 5.
   step_size: 1e-3
 
 fab: # Flow Annealed Importance Sampling Bootstrap
-  initial_scale: 5.
+  init_std: 5.
   step_size: 1e-4
 
 ud_langevin:  # Underdamped Langevin Methods (UHA/LDVI)
-  initial_scale: 5.
+  init_std: 5.
   step_size: 5e-4
   eps: 1e-2
 
 od_langevin:  # Overdamped Langevin Methods (ULA/MCD/CMCD)
   max_diffusion: 10.
-  initial_scale: 5.
+  init_std: 5.
   step_size: 5e-4
 
 cmcd:  # Controlled Monte Carlo Diffusions
   max_diffusion: 10.
-  initial_scale: 5.
+  init_std: 5.
   step_size: 5e-4
 
 pis: # Path Integral Sampler
@@ -58,11 +58,11 @@ pis: # Path Integral Sampler
   step_size: 5e-4
 
 dis: # Time-reversed Diffusion Sampler
-  initial_scale: 5.
+  init_std: 5.
   step_size: 5e-4
 
 dds: # Denoising Diffusion Sampler
-  initial_scale: 5.
+  init_std: 5.
   step_size: 5e-4
 
 gfn_tb: # Generative Flow Networks
@@ -71,7 +71,7 @@ gfn_tb: # Generative Flow Networks
 
 gbs:  # General Schroedinger Bridge
   max_diffusion: 10.
-  initial_scale: 5.
+  init_std: 5.
   step_size: 5e-4
 
 all: # Parameters that are shared between all algorithms

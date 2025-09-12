@@ -6,7 +6,7 @@ batch_size: ${target.all.batch_size}
 #use_markov: True
 
 init_mean: 0.
-init_std: ${target.smc_advanced.initial_scale}
+init_std: ${target.smc_advanced.init_std}
 target_ess: ${target.smc_advanced.target_ess}
 #
 #defaults:

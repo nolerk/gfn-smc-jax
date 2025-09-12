@@ -3,7 +3,7 @@ name: ula
 step_size: ${target.od_langevin.step_size}
 batch_size: ${target.all.batch_size}
 iters: 40000
-init_std: ${target.od_langevin.initial_scale}
+init_std: ${target.od_langevin.init_std}
 num_steps: 128
 loss: "elbo"  # Currently only supports 'elbo'
 grad_clip: 1.

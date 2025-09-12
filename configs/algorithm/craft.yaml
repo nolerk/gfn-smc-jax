@@ -9,7 +9,7 @@ use_path_gradient: False
 iters: 3000
 
 init_mean: 0.
-init_std: ${target.flow_transport.initial_scale}
+init_std: ${target.flow_transport.init_std}
 
 defaults:
   - mcmc/hmc

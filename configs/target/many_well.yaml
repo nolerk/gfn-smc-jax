@@ -15,53 +15,53 @@ fn:
 # ----------------------------------------
 
 mfvi: # Gaussian Mean Field Variational Inference
-  initial_scale: 1.
+  init_std: 1.
   step_size: 1e-3
 
 gmmvi: # Gaussian Mixture Model Variational Inference
-  initial_scale: 1.
+  init_std: 1.
 
 nfvi: # Normalizing Flow Variational Inference
-  initial_scale: 1.
+  init_std: 1.
   step_size: 1e-3
 
 hmc:  # Hamilton Monte Carlo
   hmc_step_size: [0.1, 0.1]
 
 smc: # Sequential Monte Carlo Sampler
-  initial_scale: 1.
+  init_std: 1.
 
 smc_advanced:
-  initial_scale: 10.0
+  init_std: 10.0
   target_ess: 0.99
   hmc_step_size: [0.2, 0.1]
 
 flow_transport: # Flow Transport Methods (AFT/CRAFT)
-  initial_scale: 1.
+  init_std: 1.
   step_size: 1e-3
 
 fab: # Flow Annealed Importance Sampling Bootstrap
-  initial_scale: 1.
+  init_std: 1.
   step_size: 5e-4
 
 ud_langevin:  # Underdamped Langevin Methods (UHA/LDVI)
   max_diffusion: 1.
-  initial_scale: 1.
+  init_std: 1.
   step_size: 5e-4
 
 od_langevin:  # Overdamped Langevin Methods (ULA/MCD)
   max_diffusion: 1.
-  initial_scale: 1.
+  init_std: 1.
   step_size: 5e-4
 
 cmcd:  # Controlled Monte Carlo Diffusions
   max_diffusion: 1.
-  initial_scale: 1.
+  init_std: 1.
   step_size: 5e-4
 
 scld:
   max_diffusion: 10. # sqrt(0.01 / (1 / 16))
-  initial_scale: 1.
+  init_std: 1.
   step_size: 1e-4
   annealing_step_size: 1e-2
   n_sub_traj: 4
@@ -71,11 +71,11 @@ pis: # Path Integral Sampler
   step_size: 5e-4
 
 dis: # Time-reversed Diffusion Sampler
-  initial_scale: 1.
+  init_std: 1.
   step_size: 5e-4
 
 dds: # Denoising Diffusion Sampler
-  initial_scale: 1.
+  init_std: 1.
   step_size: 5e-4
 
 gfn_tb: # Generative Flow Networks
@@ -84,7 +84,7 @@ gfn_tb: # Generative Flow Networks
 
 gbs:  # General Bridge Sampler
   max_diffusion: 1.
-  initial_scale: 1.
+  init_std: 1.
   step_size: 5e-4
 
 all: # Parameters that are shared between all algorithms

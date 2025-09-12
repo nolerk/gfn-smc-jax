@@ -11,5 +11,5 @@ model_initialization:
   use_diagonal_covs: False
   num_initial_components: 10
   prior_mean: 0.
-  prior_scale: ${target.gmmvi.initial_scale}
-  init_std: ${target.gmmvi.initial_scale}
+  prior_scale: ${target.gmmvi.init_std}
+  init_std: ${target.gmmvi.init_std}

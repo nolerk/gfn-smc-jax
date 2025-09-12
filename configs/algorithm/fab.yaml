@@ -33,7 +33,7 @@ buffer:
 flow:
   # Initial Distribution
   base_loc: 0
-  base_scale: ${target.fab.initial_scale}
+  base_scale: ${target.fab.init_std}
 
   n_layers: 8
   conditioner_mlp_units: [64, 64]  # Small MLP allows for fast local run, and can help stability.

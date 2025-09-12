@@ -3,7 +3,7 @@ name: gbs
 step_size: ${target.gbs.step_size}
 batch_size: ${target.all.batch_size}
 iters: 40000
-init_std: ${target.gbs.initial_scale}
+init_std: ${target.gbs.init_std}
 num_steps: 128
 loss: "elbo"  # Currently only supports 'elbo'
 grad_clip: 1.

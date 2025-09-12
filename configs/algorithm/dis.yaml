@@ -3,7 +3,7 @@ name: dis
 step_size: ${target.dis.step_size}
 batch_size: ${target.all.batch_size}
 iters: 40000
-init_std: ${target.dis.initial_scale}
+init_std: ${target.dis.init_std}
 num_steps: 128
 loss: "elbo"  # Currently only supports 'elbo'
 grad_clip: 1.

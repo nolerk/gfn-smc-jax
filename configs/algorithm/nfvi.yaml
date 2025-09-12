@@ -8,7 +8,7 @@ num_stack: 6
 flow_type: 'ComposedFlows'
 
 init_mean: 0.
-init_std: ${target.nfvi.initial_scale}
+init_std: ${target.nfvi.init_std}
 
 defaults:
   - flows/diagonal_affine
