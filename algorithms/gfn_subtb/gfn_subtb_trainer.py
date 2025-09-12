@@ -66,6 +66,7 @@ def gfn_subtb_trainer(cfg, target):
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
     )
+    loss_fn_base = partial(loss_fn, n_chunks=alg_cfg.n_chunks)
 
     # Define the function to be JIT-ed for FWD pass
     @jax.jit
@@ -73,15 +74,20 @@ def gfn_subtb_trainer(cfg, target):
     def loss_fwd_grad_fn(key, model_state, params):
         # prior_to_target=True, terminal_xs=None
         rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-        return loss_fn(key, model_state, params, rnd_p, alg_cfg.n_chunks, terminal_xs=None)
+        return loss_fn_base(key, model_state, params, rnd_p)
 
     # --- Define the function to be JIT-ed for BWD pass ---
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
     def loss_bwd_grad_fn(key, model_state, params, terminal_xs):
         # prior_to_target=False, terminal_xs is now an argument
-        rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=False)
-        return loss_fn(key, model_state, params, rnd_p, alg_cfg.n_chunks, terminal_xs=terminal_xs)
+        rnd_p = partial(
+            rnd_partial_base,
+            batch_size=alg_cfg.batch_size,
+            prior_to_target=False,
+            terminal_xs=terminal_xs,
+        )
+        return loss_fn_base(key, model_state, params, rnd_p)
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
@@ -96,7 +102,7 @@ def gfn_subtb_trainer(cfg, target):
         def loss_fwd_nograd_fn(key, model_state, params):
             # prior_to_target=True, terminal_xs=None
             rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-            return loss_fn(key, model_state, params, rnd_p, alg_cfg.n_chunks, terminal_xs=None)
+            return loss_fn_base(key, model_state, params, rnd_p)
 
         assert buffer is not None and buffer_state is not None
         for _ in range(alg_cfg.buffer.prefill_steps):

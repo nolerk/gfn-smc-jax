@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Literal
 
 import jax
 import jax.numpy as jnp
@@ -22,7 +22,7 @@ def per_sample_rnd_pinned_brownian(
     prior_to_target=True,
     terminal_x: Array | None = None,
 ):
-    dim, _ = aux_tuple
+    dim = aux_tuple
     dt = 1.0 / num_steps
 
     def get_partial_energy(s, t, sigma_t, log_prob):
@@ -225,7 +225,7 @@ def per_sample_rnd_ou_dds(
             log_f = log_f + get_partial_energy(s, t, log_prob)
 
         # Exponential integration of the SDE
-        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
+        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step - 1]), 0, 1)
         sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
@@ -235,7 +235,7 @@ def per_sample_rnd_ou_dds(
 
         # Compute backward SDE components
         sqrt_at_next = jnp.clip(
-            noise_scale * jnp.sqrt(betas[step]), 0, 1  # shouldn't we use step + 1?
+            noise_scale * jnp.sqrt(betas[step - 1]), 0, 1  # shouldn't we use step + 1?
         )
         sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
@@ -256,7 +256,7 @@ def per_sample_rnd_ou_dds(
 
         # Compute backward SDE components
         sqrt_at_next = jnp.clip(
-            noise_scale * jnp.sqrt(betas[step]), 0, 1  # shouldn't we use step + 1?
+            noise_scale * jnp.sqrt(betas[step - 1]), 0, 1  # shouldn't we use step + 1?
         )
         sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
@@ -277,7 +277,7 @@ def per_sample_rnd_ou_dds(
         if partial_energy:
             log_f = log_f + get_partial_energy(s, t, log_prob)
 
-        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
+        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step - 1]), 0, 1)
         sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
@@ -293,7 +293,7 @@ def per_sample_rnd_ou_dds(
         init_x = jnp.clip(init_sampler(seed=key), -4 * init_std, 4 * init_std)
         key, key_gen = jax.random.split(key_gen)
         aux = (init_x, key)
-        aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(num_steps))
+        aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(1, num_steps))
         final_x, _ = aux
     else:
         init_x = terminal_x
@@ -302,13 +302,17 @@ def per_sample_rnd_ou_dds(
         key, key_gen = jax.random.split(key_gen)
         aux = (init_x, key)
         aux, per_step_output = jax.lax.scan(
-            simulate_target_to_prior, aux, jnp.arange(num_steps)[::-1]
+            simulate_target_to_prior, aux, jnp.arange(1, num_steps)[::-1]
         )
         final_x = init_x
 
     fwd_log_probs, bwd_log_probs, trajectories, log_fs = per_step_output
     fwd_log_probs = jnp.concatenate([init_log_prob(init_x)[None], fwd_log_probs])
     bwd_log_probs = jnp.concatenate([jnp.array(0.0)[None], bwd_log_probs])
+    _, log_f_init = model_state.apply_fn(
+        params, jnp.zeros(init_x.shape[0]), 0.0 * jnp.ones(1), jnp.zeros(init_x.shape[0])
+    )
+    log_fs = jnp.concatenate([log_f_init[None], log_fs])
 
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
     terminal_costs = -target.log_prob(final_x)
@@ -328,7 +332,7 @@ def rnd(
     key,
     model_state,
     params,
-    reference_process,
+    reference_process: Literal["pinned_brownian", "ou", "ou_dds"],
     batch_size,
     aux_tuple,
     target,
@@ -355,7 +359,7 @@ def rnd(
         trajectories,
         log_fs,
     ) = jax.vmap(
-        per_sample_rnd_pinned_brownian,
+        per_sample_fn,
         in_axes=(0, None, None, None, None, None, None, None, None, None, 0),
     )(
         seeds,
@@ -396,29 +400,19 @@ def loss_fn(
     key: RandomKey,
     model_state: TrainState,
     params: ModelParams,
-    rnd_partial: Callable[
-        [
-            RandomKey,  # key
-            TrainState,  # model_state
-            ModelParams,  # params
-            Array | None,  # terminal_xs
-        ],
-        tuple[Array, Array, Array, Array],
-    ],
+    rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, Array, Array, Array]],
     n_chunks: int,
-    terminal_xs: Array | None = None,
 ):
-    aux = rnd_partial(key, model_state, params, terminal_xs=terminal_xs)
+    aux = rnd_partial(key, model_state, params)
     _, log_pfs_over_pbs, _, terminal_costs, running_costs, trajectories, log_fs = aux
 
     db_discrepancy = log_fs[:, :-1] + running_costs - log_fs[:, 1:]
 
     bs, T = db_discrepancy.shape
     assert T % n_chunks == 0
-
     subtb_discrepancy = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
-
     subtb_losses = jnp.square(subtb_discrepancy)
+
     return jnp.mean(subtb_losses.mean(-1)), (
         trajectories[:, T // n_chunks :: T // n_chunks],
         jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(tau)/pf(tau))
