@@ -97,7 +97,7 @@ class PISGRADNet(nn.Module):
     inner_clip: float = 1e2
 
     weight_init: float = 1e-8
-    bias_init: float = 0.0
+    bias_init: float = 1e-1
 
     use_lp: bool = True
     learn_flow: bool = False  # For DB and SubTB

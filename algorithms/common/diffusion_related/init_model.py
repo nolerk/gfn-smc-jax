@@ -30,14 +30,12 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             optax.adam(learning_rate=alg_cfg.step_size),
         )
     else:
-        if alg_cfg.name == "gfn_tb" and alg_cfg.loss_type == "tb":
-            additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
-            params["params"] = {**params["params"], **additional_params}
-
-            optimizers_map = {
-                "network_optim": optax.adam(learning_rate=alg_cfg.step_size),
-                "logZ_optim": optax.adam(learning_rate=alg_cfg.logZ_step_size),
-            }
+        if alg_cfg.name == "gfn_tb":
+            optimizers_map = {"network_optim": optax.adam(learning_rate=alg_cfg.step_size)}
+            if alg_cfg.loss_type == "tb":
+                additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
+                params["params"] = {**params["params"], **additional_params}
+                optimizers_map["logZ_optim"] = optax.adam(learning_rate=alg_cfg.logZ_step_size)
             param_labels = path_aware_map(
                 lambda path, _: "logZ_optim" if "logZ" in path else "network_optim", params
             )

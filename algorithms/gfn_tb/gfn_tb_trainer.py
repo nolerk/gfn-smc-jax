@@ -149,13 +149,9 @@ def gfn_tb_trainer(cfg, target):
                 )
 
         if cfg.use_wandb:
-            wandb.log(
-                {
-                    "loss": jnp.mean(losses),
-                    "logZ_learned": model_state.params["params"]["logZ"],
-                },
-                step=it,
-            )
+            wandb.log({"loss": jnp.mean(losses)}, step=it)
+            if alg_cfg.loss_type == "tb":
+                wandb.log({"logZ_learned": model_state.params["params"]["logZ"]}, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)

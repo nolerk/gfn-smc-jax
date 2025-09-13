@@ -355,16 +355,27 @@ def loss_fn(
     params: ModelParams,
     rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, Array, Array, Array]],
     loss_type: Literal["tb", "lv"],
+    huber_delta: float = 1e3,
+    logr_clip: float = -1e5,
 ):
     aux = rnd_partial(key, model_state, params)
     terminal_xs, running_costs, _, terminal_costs = aux
-    log_ratio = running_costs + terminal_costs  # log_pfs - log_pbs - log_rewards
+    log_rewards = jnp.where(
+        -terminal_costs > logr_clip,
+        -terminal_costs,
+        logr_clip - jnp.log(logr_clip + terminal_costs),
+    )
+    log_ratio = running_costs - log_rewards  # log_pfs - log_pbs - log_rewards
     if loss_type == "tb":
         losses = log_ratio + params["params"]["logZ"]
     else:  # loss_type == "lv"
         losses = log_ratio - jnp.mean(log_ratio)
 
-    losses = jnp.square(losses)
+    losses = jnp.where(
+        jnp.abs(losses) <= huber_delta,
+        jnp.square(losses),
+        huber_delta * jnp.abs(losses) - 0.5 * huber_delta**2,
+    )
 
     return jnp.mean(losses), (
         terminal_xs,

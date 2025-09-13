@@ -405,16 +405,30 @@ def loss_fn(
     params: ModelParams,
     rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, Array, Array, Array]],
     n_chunks: int,
+    huber_delta: float = 1e3,
+    logr_clip: float = -1e5,
 ):
     aux = rnd_partial(key, model_state, params)
     _, _, _, terminal_costs, log_pfs_over_pbs, trajectories, log_fs = aux
 
     db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]
+    log_rewards = jnp.where(
+        -terminal_costs > logr_clip,
+        -terminal_costs,
+        logr_clip - jnp.log(logr_clip + terminal_costs),
+    )
+    db_discrepancy = db_discrepancy.at[:, -1].set(
+        db_discrepancy[:, -1] + terminal_costs - log_rewards
+    )
 
     bs, T = db_discrepancy.shape
     assert T % n_chunks == 0
     subtb_discrepancy = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
-    subtb_losses = jnp.square(subtb_discrepancy)
+    subtb_losses = jnp.where(
+        jnp.abs(subtb_discrepancy) <= huber_delta,
+        jnp.square(subtb_discrepancy),
+        huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
+    )
 
     return jnp.mean(subtb_losses.mean(-1)), (
         trajectories[:, T // n_chunks :: T // n_chunks],
