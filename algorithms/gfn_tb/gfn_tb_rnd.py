@@ -126,24 +126,22 @@ def per_sample_rnd_pinned_brownian(
         init_x = jnp.zeros(dim)
         aux = (init_x, key)
         aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(num_steps))
-        final_x, _ = aux
+        terminal_x, _ = aux
     else:
-        init_x = terminal_x
-        if init_x is None:
-            init_x = jnp.squeeze(target.sample(key, (1,)))
+        if terminal_x is None:
+            terminal_x = jnp.squeeze(target.sample(key, (1,)))
         key, key_gen = jax.random.split(key_gen)
-        aux = (init_x, key)
+        aux = (terminal_x, key)
         aux, per_step_output = jax.lax.scan(
             simulate_target_to_prior, aux, jnp.arange(num_steps)[::-1]
         )
-        final_x = init_x
 
     fwd_log_probs, bwd_log_probs, trajectories = per_step_output
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
-    terminal_costs = -target.log_prob(final_x)
+    terminal_costs = -target.log_prob(terminal_x)
 
     return (
-        final_x,
+        terminal_x,
         fwd_log_probs,
         bwd_log_probs,
         stochastic_costs,
@@ -263,27 +261,32 @@ def per_sample_rnd_ou_dds(
         key, key_gen = jax.random.split(key_gen)
         aux = (init_x, key)
         aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(num_steps))
-        final_x, _ = aux
+        terminal_x, _ = aux
     else:
-        init_x = terminal_x
-        if init_x is None:
-            init_x = jnp.squeeze(target.sample(key, (1,)))
+        if terminal_x is None:
+            terminal_x = jnp.squeeze(target.sample(key, (1,)))
         key, key_gen = jax.random.split(key_gen)
-        aux = (init_x, key)
+        aux = (terminal_x, key)
         aux, per_step_output = jax.lax.scan(
             simulate_target_to_prior, aux, jnp.arange(num_steps)[::-1]
         )
-        final_x = init_x
+        init_x, _ = aux
 
     fwd_log_probs, bwd_log_probs, trajectories = per_step_output
-    fwd_log_probs = jnp.concatenate([init_log_prob(init_x)[None], fwd_log_probs])
-    bwd_log_probs = jnp.concatenate([jnp.array(0.0)[None], bwd_log_probs])
+    init_fwd_log_prob = init_log_prob(init_x)
+    init_bwd_log_prob = jnp.array(0.0)
+    if prior_to_target:
+        fwd_log_probs = jnp.concatenate([init_fwd_log_prob[None], fwd_log_probs])
+        bwd_log_probs = jnp.concatenate([init_bwd_log_prob[None], bwd_log_probs])
+    else:
+        fwd_log_probs = jnp.concatenate([fwd_log_probs, init_fwd_log_prob[None]])
+        bwd_log_probs = jnp.concatenate([bwd_log_probs, init_bwd_log_prob[None]])
 
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
-    terminal_costs = -target.log_prob(final_x)
+    terminal_costs = -target.log_prob(terminal_x)
 
     return (
-        final_x,
+        terminal_x,
         fwd_log_probs,
         bwd_log_probs,
         stochastic_costs,
@@ -314,7 +317,7 @@ def rnd(
     }[reference_process]
 
     (
-        final_x,
+        terminal_xs,
         fwd_log_probs,
         bwd_log_probs,
         stochastic_costs,
@@ -337,9 +340,13 @@ def rnd(
     )
     running_costs = fwd_log_probs - bwd_log_probs
 
-    # trajectories = jnp.concatenate([trajectories, final_x[:, None]], axis=1)
+    if not prior_to_target:
+        running_costs = running_costs[:, ::-1]
+        trajectories = trajectories[:, ::-1]
 
-    return final_x, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs
+    # trajectories = jnp.concatenate([trajectories, terminal_xs[:, None]], axis=1)
+
+    return terminal_xs, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs
 
 
 def loss_fn(
@@ -350,7 +357,7 @@ def loss_fn(
     loss_type: Literal["tb", "lv"],
 ):
     aux = rnd_partial(key, model_state, params)
-    final_x, running_costs, _, terminal_costs = aux
+    terminal_xs, running_costs, _, terminal_costs = aux
     log_ratio = running_costs + terminal_costs  # log_pfs - log_pbs - log_rewards
     if loss_type == "tb":
         losses = log_ratio + params["params"]["logZ"]
@@ -360,7 +367,7 @@ def loss_fn(
     losses = jnp.square(losses)
 
     return jnp.mean(losses), (
-        final_x,
+        terminal_xs,
         jax.lax.stop_gradient(-running_costs),  # log_pbs - log_pfs
         -terminal_costs,  # log_rewards
         jax.lax.stop_gradient(losses),  # losses
