@@ -404,9 +404,9 @@ def loss_fn(
     n_chunks: int,
 ):
     aux = rnd_partial(key, model_state, params)
-    _, log_pfs_over_pbs, _, terminal_costs, running_costs, trajectories, log_fs = aux
+    _, _, _, terminal_costs, log_pfs_over_pbs, trajectories, log_fs = aux
 
-    db_discrepancy = log_fs[:, :-1] + running_costs - log_fs[:, 1:]
+    db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]
 
     bs, T = db_discrepancy.shape
     assert T % n_chunks == 0

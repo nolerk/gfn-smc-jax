@@ -118,7 +118,7 @@ def gfn_subtb_trainer(cfg, target):
             buffer_state = buffer.add(
                 buffer_state,
                 trajectories[:, -1],
-                log_pbs_over_pfs,
+                log_pbs_over_pfs.sum(-1),
                 log_rewards,
                 subtb_losses.sum(-1),
             )
@@ -145,7 +145,7 @@ def gfn_subtb_trainer(cfg, target):
                 buffer_state = buffer.add(
                     buffer_state,
                     trajectories[:, -1],
-                    log_pbs_over_pfs,
+                    log_pbs_over_pfs.sum(-1),
                     log_rewards,
                     subtb_losses.sum(-1),
                 )
@@ -171,7 +171,11 @@ def gfn_subtb_trainer(cfg, target):
             # Update scores in buffer if needed
             if alg_cfg.buffer.update_score:
                 buffer_state = buffer.update_priority(
-                    buffer_state, indices, log_pbs_over_pfs, log_rewards, subtb_losses.sum(-1)
+                    buffer_state,
+                    indices,
+                    log_pbs_over_pfs.sum(-1),
+                    log_rewards,
+                    subtb_losses.sum(-1),
                 )
 
         if cfg.use_wandb:
