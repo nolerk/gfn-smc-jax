@@ -69,7 +69,7 @@ defaults:
 model:
   use_lp: True
   num_hid: 64
-  bias_init: 0.  # Initialization of the last layers' bias of the time-dependent network
+  bias_init: 0.1  # Initialization of the last layers' bias of the time-dependent network
   weight_init: 1e-8  # Initialization of the last layers' weights of the time-dependent network
 
 learn_max_diffusion: False

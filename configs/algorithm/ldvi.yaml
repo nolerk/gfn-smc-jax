@@ -22,5 +22,5 @@ noise_schedule:
   reverse: False
 
 model:
-  bias_init: 0.
+  bias_init: 0.1
   weight_init: 1e-8

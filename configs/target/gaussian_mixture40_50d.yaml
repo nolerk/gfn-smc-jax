@@ -1,6 +1,6 @@
 name: gaussian_mixture40
 num_components: 40
-dim: 2
+dim: 50
 has_entropy: True
 
 fn:
@@ -78,7 +78,7 @@ dis: # Time-reversed Diffusion Sampler
   step_size: 5e-4
 
 dds: # Denoising Diffusion Sampler
-  noise_scale: 3.0
+  noise_scale: 2.5
   init_std: 40.
   step_size: 5e-4
 
@@ -92,7 +92,7 @@ gfn_tb: # Trajectory Balance
   init_std: 40.  # for ou or ou_dss
   max_diffusion: 40.  # for pinned_brownian or ou
   noise_scale: 3.  # for ou_dds
-  step_size: 1e-3
+  step_size: 5e-4
   logZ_step_size: 1e-1
   init_logZ: 0.
 
@@ -101,7 +101,7 @@ gfn_subtb: # Sub-Trajectory Balance
   init_std: 40.  # for ou or ou_dds
   max_diffusion: 40.  # for pinned_brownian or ou
   noise_scale: 3.  # for ou_dds
-  step_size: 1e-3
+  step_size: 5e-4
   logflow_step_size: 1e-2
 
 all: # Parameters that are shared between all algorithms
