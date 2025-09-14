@@ -7,7 +7,7 @@ init_std: ${target.dds.init_std}
 num_steps: 128
 loss: "elbo"  # Currently only supports 'elbo'
 grad_clip: 1.
-noise_scale: ${target.dds.noise_scale}
+noise_scale: 6.
 
 defaults:
   - model: pisgrad_net

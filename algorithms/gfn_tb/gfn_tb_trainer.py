@@ -14,6 +14,7 @@ from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
 from algorithms.gfn_tb.buffer import build_terminal_state_buffer
 from algorithms.gfn_tb.gfn_tb_rnd import rnd, loss_fn
+from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
 from utils.print_utils import print_results
 
@@ -39,7 +40,7 @@ def gfn_tb_trainer(cfg, target):
         raise ValueError(f"Reference process {alg_cfg.reference_process} not supported.")
 
     # Initialize the buffer
-    use_buffer = alg_cfg.buffer.use_buffer
+    use_buffer = alg_cfg.buffer.use
     buffer = buffer_state = None
     if use_buffer:
         buffer = build_terminal_state_buffer(
@@ -70,15 +71,15 @@ def gfn_tb_trainer(cfg, target):
     # Define the function to be JIT-ed for FWD pass
     @partial(jax.jit)
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_fwd_grad_fn(key, model_state, params):
+    def loss_fwd_grad_fn(key, model_state, params, invtemp=1.0):
         # prior_to_target=True, terminal_xs=None
         rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-        return loss_fn_base(key, model_state, params, rnd_p)
+        return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
 
     # --- Define the function to be JIT-ed for BWD pass ---
     @partial(jax.jit)
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_bwd_grad_fn(key, model_state, params, terminal_xs):
+    def loss_bwd_grad_fn(key, model_state, params, terminal_xs, invtemp=1.0):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
@@ -86,7 +87,7 @@ def gfn_tb_trainer(cfg, target):
             prior_to_target=False,
             terminal_xs=terminal_xs,
         )
-        return loss_fn_base(key, model_state, params, rnd_p)
+        return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
@@ -98,10 +99,10 @@ def gfn_tb_trainer(cfg, target):
     if use_buffer and alg_cfg.buffer.prefill_steps > 0:
         # Define the function to be JIT-ed for FWD pass
         @partial(jax.jit)
-        def loss_fwd_nograd_fn(key, model_state, params):
+        def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
             # prior_to_target=True, terminal_xs=None
             rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-            return loss_fn_base(key, model_state, params, rnd_p)
+            return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
 
         assert buffer is not None and buffer_state is not None
         for _ in range(alg_cfg.buffer.prefill_steps):
@@ -113,13 +114,16 @@ def gfn_tb_trainer(cfg, target):
 
     ### Training phase
     for it in range(alg_cfg.iters):
+        invtemp = get_invtemp(
+            it, alg_cfg.iters // 2, alg_cfg.init_invtemp, (alg_cfg.init_invtemp < 1.0)
+        )
 
         # On-policy training with forward samples
         if not use_buffer or it % (alg_cfg.buffer.bwd_to_fwd_ratio + 1) == 0:
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
             grads, (x, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_grad_fn(
-                key, model_state, model_state.params
+                key, model_state, model_state.params, invtemp=invtemp
             )
             model_state = model_state.apply_gradients(grads=grads)
 
@@ -138,7 +142,7 @@ def gfn_tb_trainer(cfg, target):
 
             # Get grads with the off-policy samples
             grads, (_, log_pbs_over_pfs, log_rewards, losses) = loss_bwd_grad_fn(
-                key, model_state, model_state.params, samples
+                key, model_state, model_state.params, samples, invtemp=invtemp
             )
             model_state = model_state.apply_gradients(grads=grads)
 

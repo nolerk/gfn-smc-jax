@@ -9,11 +9,13 @@ import distrax
 import jax
 import jax.numpy as jnp
 import wandb
+import optax
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
 from algorithms.gfn_subtb.buffer import build_intermediate_state_buffer
 from algorithms.gfn_subtb.gfn_subtb_rnd import rnd, loss_fn
+from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
 from utils.print_utils import print_results
 
@@ -39,7 +41,7 @@ def gfn_subtb_trainer(cfg, target):
         raise ValueError(f"Reference process {alg_cfg.reference_process} not supported.")
 
     # Initialize the buffer
-    use_buffer = alg_cfg.buffer.use_buffer
+    use_buffer = alg_cfg.buffer.use
     buffer = buffer_state = None
     if use_buffer:
         buffer = build_intermediate_state_buffer(
@@ -55,6 +57,10 @@ def gfn_subtb_trainer(cfg, target):
     # Initialize the model
     key, key_gen = jax.random.split(key_gen)
     model_state = init_model(key, dim, alg_cfg)
+    # Initialize target params for a target network (EMA)
+    target_params = None
+    if alg_cfg.target_network.use:
+        target_params = model_state.params
 
     rnd_partial_base = partial(
         rnd,
@@ -66,20 +72,19 @@ def gfn_subtb_trainer(cfg, target):
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
     )
-    loss_fn_base = partial(loss_fn, n_chunks=alg_cfg.n_chunks)
+    loss_fn_base = partial(loss_fn, n_chunks=alg_cfg.n_chunks, target_params=target_params)
 
     # Define the function to be JIT-ed for FWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_fwd_grad_fn(key, model_state, params):
-        # prior_to_target=True, terminal_xs=None
+    def loss_fwd_grad_fn(key, model_state, params, invtemp=1.0):
         rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-        return loss_fn_base(key, model_state, params, rnd_p)
+        return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
     # --- Define the function to be JIT-ed for BWD pass ---
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_bwd_grad_fn(key, model_state, params, terminal_xs):
+    def loss_bwd_grad_fn(key, model_state, params, terminal_xs, invtemp=1.0):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
@@ -87,11 +92,14 @@ def gfn_subtb_trainer(cfg, target):
             prior_to_target=False,
             terminal_xs=terminal_xs,
         )
-        return loss_fn_base(key, model_state, params, rnd_p)
+        return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
-        partial(rnd_partial_base, batch_size=cfg.eval_samples), target, target_xs, cfg
+        partial(rnd_partial_base, target_params=None, batch_size=cfg.eval_samples),
+        target,
+        target_xs,
+        cfg,
     )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
@@ -99,10 +107,10 @@ def gfn_subtb_trainer(cfg, target):
     if use_buffer and alg_cfg.buffer.prefill_steps > 0:
         # Define the function to be JIT-ed for FWD pass
         @jax.jit
-        def loss_fwd_nograd_fn(key, model_state, params):
+        def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
             # prior_to_target=True, terminal_xs=None
             rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-            return loss_fn_base(key, model_state, params, rnd_p)
+            return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
         assert buffer is not None and buffer_state is not None
         for _ in range(alg_cfg.buffer.prefill_steps):
@@ -113,7 +121,8 @@ def gfn_subtb_trainer(cfg, target):
                 _,  # subtb_discrepancy
                 log_rewards,
                 subtb_losses,
-            ) = loss_fwd_nograd_fn(key, model_state, model_state.params)
+                logZ,
+            ) = loss_fwd_nograd_fn(key, model_state, model_state.params, invtemp=1.0)
 
             buffer_state = buffer.add(
                 buffer_state,
@@ -125,6 +134,9 @@ def gfn_subtb_trainer(cfg, target):
 
     ### Training phase
     for it in range(alg_cfg.iters):
+        invtemp = get_invtemp(
+            it, alg_cfg.iters // 2, alg_cfg.init_invtemp, (alg_cfg.init_invtemp < 1.0)
+        )
 
         # On-policy training with forward samples
         if not use_buffer or it % (alg_cfg.buffer.bwd_to_fwd_ratio + 1) == 0:
@@ -136,7 +148,8 @@ def gfn_subtb_trainer(cfg, target):
                 _,  # subtb_discrepancy
                 log_rewards,
                 subtb_losses,
-            ) = loss_fwd_grad_fn(key, model_state, model_state.params)
+                logZ,
+            ) = loss_fwd_grad_fn(key, model_state, model_state.params, invtemp=invtemp)
             model_state = model_state.apply_gradients(grads=grads)
 
             # Add samples to buffer
@@ -165,7 +178,8 @@ def gfn_subtb_trainer(cfg, target):
                 _,  # subtb_discrepancy
                 log_rewards,
                 subtb_losses,
-            ) = loss_bwd_grad_fn(key, model_state, model_state.params, samples)
+                logZ,
+            ) = loss_bwd_grad_fn(key, model_state, model_state.params, samples, invtemp=invtemp)
             model_state = model_state.apply_gradients(grads=grads)
 
             # Update scores in buffer if needed
@@ -178,8 +192,16 @@ def gfn_subtb_trainer(cfg, target):
                     subtb_losses.sum(-1),
                 )
 
+        if target_params is not None:
+            target_params = optax.periodic_update(
+                model_state.params,
+                target_params,
+                model_state.step,
+                alg_cfg.target_network.update_every,
+            )
+
         if cfg.use_wandb:
-            wandb.log({"loss": jnp.mean(subtb_losses)}, step=it)
+            wandb.log({"loss": jnp.mean(subtb_losses), "logZ_learned": logZ}, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)

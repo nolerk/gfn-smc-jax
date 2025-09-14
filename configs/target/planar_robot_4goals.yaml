@@ -77,7 +77,6 @@ gfn_tb: # Trajectory Balance
   reference_process: pinned_brownian  # pinned_brownian, or, or_dds
   init_std: 2.  # for ou or ou_dss
   max_diffusion: 0.3  # for pinned_brownian or ou
-  noise_scale: 3.  # for ou_dds
   step_size: 1e-3
   logZ_step_size: 1e-1
   init_logZ: 0.
@@ -86,9 +85,8 @@ gfn_subtb: # Sub-Trajectory Balance
   reference_process: pinned_brownian  # pinned_brownian, or, or_dds
   init_std: 2.  # for ou or ou_dds
   max_diffusion: 0.3  # for pinned_brownian or ou
-  noise_scale: 3.  # for ou_dds
   step_size: 1e-3
-  logflow_step_size: 1e-2
+  logflow_step_size: 1e-3
 
 all: # Parameters that are shared between all algorithms
   batch_size: 2000

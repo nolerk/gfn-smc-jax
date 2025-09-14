@@ -178,7 +178,7 @@ def per_sample_rnd_ou_dds(
     terminal_x: Array | None = None,
 ):
     init_std, init_sampler, init_log_prob, noise_scale = aux_tuple
-    betas = cos_sq_fn_step_scheme(num_steps)
+    betas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -196,7 +196,7 @@ def per_sample_rnd_ou_dds(
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
 
         # Exponential integration of the SDE
-        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
+        sqrt_at = jnp.clip(jnp.sqrt(betas[step]), 0, 1)
         sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
@@ -205,12 +205,10 @@ def per_sample_rnd_ou_dds(
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
 
         # Compute backward SDE components
-        sqrt_at_next = jnp.clip(
-            noise_scale * jnp.sqrt(betas[step]), 0, 1  # shouldn't we use step + 1?
-        )
-        sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
-        bwd_mean = sqrt_1_minus_at_next * s_next
-        bwd_scale = sqrt_at_next * init_std
+        # sqrt_at_next = jnp.clip(jnp.sqrt(betas[step + 1]), 0, 1)  # shouldn't we use step + 1?
+        # sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
+        bwd_mean = sqrt_1_minus_at * s_next
+        bwd_scale = sqrt_at * init_std
         bwd_log_prob = log_prob_kernel(s, bwd_mean, bwd_scale)
 
         # Return next state and per-step output
@@ -226,9 +224,7 @@ def per_sample_rnd_ou_dds(
         s_next = jax.lax.stop_gradient(s_next)
 
         # Compute backward SDE components
-        sqrt_at_next = jnp.clip(
-            noise_scale * jnp.sqrt(betas[step]), 0, 1  # shouldn't we use step + 1?
-        )
+        sqrt_at_next = jnp.clip(jnp.sqrt(betas[step]), 0, 1)  # shouldn't we use step + 1?
         sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
         bwd_scale = sqrt_at_next * init_std
@@ -244,10 +240,10 @@ def per_sample_rnd_ou_dds(
             langevin = jnp.zeros(s.shape[0])
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
 
-        sqrt_at = jnp.clip(noise_scale * jnp.sqrt(betas[step]), 0, 1)
-        sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
-        fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
-        fwd_scale = sqrt_at * init_std
+        # sqrt_at = jnp.clip(jnp.sqrt(betas[step]), 0, 1)
+        # sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
+        fwd_mean = sqrt_1_minus_at_next * s + sqrt_at_next**2 * model_output
+        fwd_scale = sqrt_at_next * init_std
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
 
         # Return next state and per-step output
@@ -355,7 +351,8 @@ def loss_fn(
     params: ModelParams,
     rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, Array, Array, Array]],
     loss_type: Literal["tb", "lv"],
-    huber_delta: float = 1e3,
+    invtemp: float = 1.0,
+    huber_delta: float = 1e4,
     logr_clip: float = -1e5,
 ):
     aux = rnd_partial(key, model_state, params)
@@ -365,7 +362,7 @@ def loss_fn(
         -terminal_costs,
         logr_clip - jnp.log(logr_clip + terminal_costs),
     )
-    log_ratio = running_costs - log_rewards  # log_pfs - log_pbs - log_rewards
+    log_ratio = running_costs - log_rewards * invtemp  # log_pfs - log_pbs - log_rewards
     if loss_type == "tb":
         losses = log_ratio + params["params"]["logZ"]
     else:  # loss_type == "lv"
