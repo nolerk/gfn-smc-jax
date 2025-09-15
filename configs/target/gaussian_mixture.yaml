@@ -1,5 +1,5 @@
 name: gaussian_mixture
-num_components: 10
+num_components: 2
 dim: 2
 has_entropy: True
 
@@ -67,14 +67,27 @@ dds: # Denoising Diffusion Sampler
   init_std: 15.
   step_size: 5e-4
 
-gfn_tb: # Generative Flow Networks
-  max_diffusion: 15.
-  step_size: 5e-4
-
 gbs:  # General Bridge Sampler
   max_diffusion: 1.
   init_std: 15.
   step_size: 5e-4
+
+gfn_tb: # Trajectory Balance
+  reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
+  init_std: 15.  # for ou or ou_dss
+  max_diffusion: 15.  # for pinned_brownian or ou
+  step_size: 1e-3
+  logZ_step_size: 1e-1
+  init_logZ: 0.
+
+gfn_subtb: # Sub-Trajectory Balance
+  reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
+  init_std: 15.  # for ou or ou_dds
+  max_diffusion: 15.  # for pinned_brownian or ou
+  step_size: 1e-3
+  logflow_step_size: 1e-2
+  logZ_step_size: 1e-1  # for ou or ou_dds
+  init_logZ: 0.  # for ou or ou_dds
 
 all: # Parameters that are shared between all algorithms
   batch_size: 2000

@@ -117,11 +117,6 @@ class GaussianMixtureModel(Target):
             plt.yticks([])
             # plt.savefig(os.path.join(project_path('./figures/'), f"gmm2D.pdf"), bbox_inches='tight', pad_inches=0.1)
 
-            try:
-                wandb.log({"images/target_vis": wandb.Image(plt)})
-            except:
-                pass
-
             # import tikzplotlib
             # import os
             # plt.savefig(os.path.join(project_path('./figures/'), f"gmm.pdf"), bbox_inches='tight', pad_inches=0.1)

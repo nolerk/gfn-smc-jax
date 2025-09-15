@@ -121,7 +121,6 @@ def gfn_subtb_trainer(cfg, target):
                 _,  # subtb_discrepancy
                 log_rewards,
                 subtb_losses,
-                logZ,
             ) = loss_fwd_nograd_fn(key, model_state, model_state.params, invtemp=1.0)
 
             buffer_state = buffer.add(
@@ -148,7 +147,6 @@ def gfn_subtb_trainer(cfg, target):
                 _,  # subtb_discrepancy
                 log_rewards,
                 subtb_losses,
-                logZ,
             ) = loss_fwd_grad_fn(key, model_state, model_state.params, invtemp=invtemp)
             model_state = model_state.apply_gradients(grads=grads)
 
@@ -178,7 +176,6 @@ def gfn_subtb_trainer(cfg, target):
                 _,  # subtb_discrepancy
                 log_rewards,
                 subtb_losses,
-                logZ,
             ) = loss_bwd_grad_fn(key, model_state, model_state.params, samples, invtemp=invtemp)
             model_state = model_state.apply_gradients(grads=grads)
 
@@ -201,7 +198,13 @@ def gfn_subtb_trainer(cfg, target):
             )
 
         if cfg.use_wandb:
-            wandb.log({"loss": jnp.mean(subtb_losses), "logZ_learned": logZ}, step=it)
+            wandb.log(
+                {
+                    "loss": jnp.mean(subtb_losses),
+                    "logZ_learned": model_state.params["params"]["logZ"],
+                },
+                step=it,
+            )
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)

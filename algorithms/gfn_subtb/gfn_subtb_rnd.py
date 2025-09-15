@@ -518,5 +518,4 @@ def loss_fn(
         jax.lax.stop_gradient(-subtb_discrepancy),  # log(f(s')pb(s'->s)/f(s)pf(s->s'))
         -terminal_costs,  # log_rewards
         jax.lax.stop_gradient(subtb_losses),
-        log_fs[0, 0],  # logZ
     )
