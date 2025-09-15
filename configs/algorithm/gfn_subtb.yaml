@@ -16,6 +16,12 @@ init_invtemp: 1.
 init_logZ: ${target.gfn_tb.init_logZ}
 logZ_step_size: ${target.gfn_tb.logZ_step_size}
 
+# Learning rate scheduler
+lr_schedule:
+  type: multistep  # multistep | cosine | constant
+  milestones: [20000, 30000]  # iteration indices at which to decay
+  gamma: 0.3  # multiply LR by gamma at each milestone
+
 target_network:
   use: False
   update_every: 10

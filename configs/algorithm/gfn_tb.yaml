@@ -14,6 +14,12 @@ max_diffusion: ${target.gfn_tb.max_diffusion}  # for pinned_brownian or ou
 noise_scale: 6.  # for ou_dds
 init_invtemp: 1.
 
+# Learning rate scheduler
+lr_schedule:
+  type: multistep  # multistep | cosine | constant
+  milestones: [20000, 30000]  # iteration indices at which to decay
+  gamma: 0.3  # multiply LR by gamma at each milestone
+
 defaults:
   - model: pisgrad_net
   - noise_schedule: const
