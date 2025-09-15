@@ -1,6 +1,6 @@
 name: gaussian_mixture40
 num_components: 40
-dim: 2
+dim: 10
 has_entropy: True
 
 fn:

@@ -44,10 +44,20 @@ def init_model(key, dim, alg_cfg) -> TrainState:
                 "network_optim": optax.adam(learning_rate=alg_cfg.step_size),
                 "logflow_optim": optax.adam(learning_rate=alg_cfg.logflow_step_size),
             }
-            param_labels = path_aware_map(
-                lambda path, _: "logflow_optim" if "logflow_net" in path else "network_optim",
-                params,
-            )
+            if alg_cfg.reference_process in ["ou", "ou_dds"]:
+                additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
+                params["params"] = {**params["params"], **additional_params}
+                optimizers_map["logZ_optim"] = optax.adam(learning_rate=alg_cfg.logZ_step_size)
+
+            def label_map(path, _):
+                if "logflow_net" in path:
+                    return "logflow_optim"
+                elif "logZ" in path:
+                    return "logZ_optim"
+                else:
+                    return "network_optim"
+
+            param_labels = path_aware_map(label_map, params)
 
         partitioned_optimizer = optax.multi_transform(optimizers_map, param_labels)
         optimizer = optax.chain(

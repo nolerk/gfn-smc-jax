@@ -9,14 +9,16 @@ n_chunks: 5
 partial_energy: True
 logflow_step_size: ${target.gfn_subtb.logflow_step_size}
 reference_process: pinned_brownian  # ou or pinned_brownian
-init_std: ${target.gfn_tb.init_std}  # for ou
-max_diffusion: ${target.gfn_tb.max_diffusion}  # for pinned_brownian or ou
+init_std: ${target.gfn_subtb.init_std}  # for ou
+max_diffusion: ${target.gfn_subtb.max_diffusion}  # for pinned_brownian or ou
 noise_scale: 6.  # for ou_dds
 init_invtemp: 1.
+init_logZ: ${target.gfn_tb.init_logZ}
+logZ_step_size: ${target.gfn_tb.logZ_step_size}
 
 target_network:
-  use: True
-  update_every: 100
+  use: False
+  update_every: 10
 
 defaults:
   - model: pisgrad_net
@@ -41,5 +43,5 @@ buffer:
   rank_k: 0.01  # only used if sampling_method is rank
   sample_with_replacement: True
   prefill_steps: 10  # collect `prefill_steps` batches before starting training
-  bwd_to_fwd_ratio: 1  # number of bwd steps per fwd step
+  bwd_to_fwd_ratio: 2  # number of bwd steps per fwd step
   update_score: False

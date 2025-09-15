@@ -188,3 +188,7 @@ utils/prior_gif.gif
 
 # VSCode
 .vscode/
+
+# Slurm
+scripts/
+slurm_logs/
