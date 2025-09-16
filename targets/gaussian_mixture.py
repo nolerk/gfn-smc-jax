@@ -9,6 +9,7 @@ import wandb
 from matplotlib import pyplot as plt
 from scipy.stats import wishart
 
+from utils.plot_utils import plot_contours_2D, plot_marginal_pair
 from targets.base_target import Target
 
 
@@ -20,8 +21,8 @@ class GaussianMixtureModel(Target):
         self.num_components = num_components
 
         # parameters
-        min_mean_val = -10
-        max_mean_val = 10
+        self.min_mean_val = -10
+        self.max_mean_val = 10
         min_val_mixture_weight = 0.3
         max_val_mixture_weight = 0.7
         degree_of_freedom_wishart = dim + 2
@@ -30,7 +31,7 @@ class GaussianMixtureModel(Target):
 
         # set mixture components
         locs = jax.random.uniform(
-            seed, minval=min_mean_val, maxval=max_mean_val, shape=(num_components, dim)
+            seed, minval=self.min_mean_val, maxval=self.max_mean_val, shape=(num_components, dim)
         )
         covariances = []
         for _ in range(num_components):
@@ -87,40 +88,18 @@ class GaussianMixtureModel(Target):
 
     def visualise(self, samples: chex.Array = None, axes=None, show=False, prefix="") -> dict:
         plt.close()
-
-        boarder = [-15, 15]
-
-        fig = plt.figure()
+        bounds = (self.min_mean_val * 1.8, self.max_mean_val * 1.8)
+        fig = plt.figure(figsize=(6, 6))
         ax = fig.add_subplot()
-
-        if self.dim == 2:
-
-            x, y = jnp.meshgrid(
-                jnp.linspace(boarder[0], boarder[1], 100), jnp.linspace(boarder[0], boarder[1], 100)
-            )
-            grid = jnp.c_[x.ravel(), y.ravel()]
-            pdf_values = jax.vmap(jnp.exp)(self.log_prob(grid))
-            pdf_values = jnp.reshape(pdf_values, x.shape)
-            ax.contourf(x, y, pdf_values, levels=20)  # , cmap='viridis')
-            if samples is not None:
-                plt.scatter(samples[:300, 0], samples[:300, 1], c="r", alpha=0.5, marker="x")
-            # plt.xlabel('X')
-            # plt.ylabel('Y')
-            # plt.colorbar()
-            plt.xticks([])
-            plt.yticks([])
-            # plt.savefig(os.path.join(project_path('./figures/'), f"gmm2D.pdf"), bbox_inches='tight', pad_inches=0.1)
-
-            # import tikzplotlib
-            # import os
-            # plt.savefig(os.path.join(project_path('./figures/'), f"gmm.pdf"), bbox_inches='tight', pad_inches=0.1)
-            # tikzplotlib.save(os.path.join(project_path('./figures/'), f"gmm.tex"))
-
-        else:
-            target_samples = self.sample(jax.random.PRNGKey(0), (500,))
-            ax.scatter(target_samples[:, 0], target_samples[:, 1], c="b", label="target")
-            ax.scatter(samples[:, 0], samples[:, 1], c="r", label="model")
-            plt.legend()
+        marginal_dims = (0, 1)
+        plot_marginal_pair(
+            samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
+        )
+        plot_contours_2D(
+            self.log_prob, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=100
+        )
+        plt.xticks([])
+        plt.yticks([])
 
         wb = {"figures/vis": [wandb.Image(fig)]}
         if show:

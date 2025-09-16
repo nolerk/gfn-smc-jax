@@ -5,14 +5,14 @@ from typing import Optional
 
 import jax
 import jax.numpy as jnp
+import jax.scipy as jscipy
 import matplotlib.pyplot as plt
 import ml_collections
 import numpy as np
 import wandb
 from chex import Array
 
-# from configs.base import FUNNEL_EPS_DICT, LR_DICT
-from jax import scipy as jscipy
+from utils.plot_utils import plot_contours_2D, plot_marginal_pair
 
 
 def make_grid(x: Array, im_size: int, n: int = 16, wandb_prefix: str = ""):
@@ -38,34 +38,6 @@ def make_grid(x: Array, im_size: int, n: int = 16, wandb_prefix: str = ""):
     # Log into wandb
     wandb.log({f"{wandb_prefix}": fig})
     plt.close()
-
-
-# Taken from https://github.com/lollcat/fab-jax/blob/632e0a7d3dbd8da6b2ef043ab41e2346f29dfece/fabjax/utils/plot.py#L11
-def plot_contours_2D(
-    log_prob_func, ax: Optional[plt.Axes] = None, bound: int = 3, levels: int = 20
-):
-    """Plot the contours of a 2D log prob function."""
-    if ax is None:
-        fig, ax = plt.subplots(1)
-    n_points = 200
-    x_points_dim1 = np.linspace(-bound, bound, n_points)
-    x_points_dim2 = np.linspace(-bound, bound, n_points)
-    x_points = np.array(list(itertools.product(x_points_dim1, x_points_dim2)))
-    log_probs = log_prob_func(x_points)
-    log_probs = jnp.clip(log_probs, a_min=-1000, a_max=None)
-    x1 = x_points[:, 0].reshape(n_points, n_points)
-    x2 = x_points[:, 1].reshape(n_points, n_points)
-    z = log_probs.reshape(n_points, n_points)
-    ax.contour(x1, x2, z, levels=levels)
-
-
-# Taken from https://github.com/lollcat/fab-jax/blob/632e0a7d3dbd8da6b2ef043ab41e2346f29dfece/fabjax/utils/plot.py#L30
-def plot_marginal_pair(samples, ax=None, marginal_dims=(0, 1), bounds=(-5, 5), alpha: float = 0.5):
-    """Plot samples from marginal of distribution for a given pair of dimensions."""
-    if not ax:
-        fig, ax = plt.subplots(1)
-    samples = jnp.clip(samples, bounds[0], bounds[1])
-    ax.plot(samples[:, marginal_dims[0]], samples[:, marginal_dims[1]], "o", alpha=alpha)
 
 
 def plot_gmm(samples, log_p_fn, loc_scaling, wandb_prefix: str = ""):

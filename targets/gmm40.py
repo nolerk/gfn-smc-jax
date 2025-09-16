@@ -1,18 +1,12 @@
-from typing import List
-
 import chex
 import distrax
 import jax
 import jax.numpy as jnp
-import matplotlib
 import wandb
 from matplotlib import pyplot as plt
 
-from algorithms.fab.utils.plot import plot_contours_2D, plot_marginal_pair
+from utils.plot_utils import plot_contours_2D, plot_marginal_pair
 from targets.base_target import Target
-from utils.path_utils import project_path
-
-# matplotlib.use('agg')
 
 
 class GMM40(Target):
@@ -75,15 +69,18 @@ class GMM40(Target):
         entropy = -jnp.sum(mode_dist * (jnp.log(mode_dist) / jnp.log(self.n_mixes)))
         return entropy
 
-    def visualise(self, samples: chex.Array = None, axes=None, show=False, prefix="") -> dict:
+    def visualise(self, samples: chex.Array, axes=None, show=False, prefix="") -> dict:
         plt.close()
-        fig = plt.figure()
+        fig = plt.figure(figsize=(6, 6))
         ax = fig.add_subplot()
-        if samples is not None:
-            plot_marginal_pair(samples[:, :2], ax, bounds=(-self._plot_bound, self._plot_bound))
-            # jnp.save(project_path(f'samples/gmm40_samples'), samples)
-        if self.dim == 2:
-            plot_contours_2D(self.log_prob, ax, bound=self._plot_bound, levels=50)
+        marginal_dims = (0, 1)
+        bounds = (-self._plot_bound, self._plot_bound)
+        plot_marginal_pair(
+            samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
+        )
+        plot_contours_2D(
+            self.log_prob, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=100
+        )
         plt.xticks([])
         plt.yticks([])
         # import os
