@@ -125,13 +125,11 @@ def eval_scld(simulate, simulate_smc, get_schedule_and_prior_fn, target, target_
                 else jnp.inf
             )
 
-        logger["model_samples"] = target.visualise(model_samples, show=config.visualize_samples)
-        logger["model_samples_smc"] = target.visualise(smc_samples, show=config.visualize_samples)
+        logger["model_samples"] = target.visualise(model_samples)
+        logger["model_samples_smc"] = target.visualise(smc_samples)
 
         if target_samples is not None and is_finished:
-            logger["groundtruth_samples"] = target.visualise(
-                target_samples, show=config.visualize_samples
-            )
+            logger["groundtruth_samples"] = target.visualise(target_samples)
 
         logger["rnds/model_logrnds"] = plot_hist(total_rnds)
         logger["rnds/model_logrnds_smc"] = plot_hist(total_rnds_smc)

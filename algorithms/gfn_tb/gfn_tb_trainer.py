@@ -179,8 +179,8 @@ def gfn_tb_trainer(cfg, target):
                         if target_xs is not None
                         else jnp.inf
                     )
-                viz_dict = target.visualise(samples=buffer_xs, show=cfg.visualize_samples).items()
-                logger.update({f"{key}_buffer_samples": value for key, value in viz_dict})
+                vis_dict = target.visualise(samples=buffer_xs).items()
+                logger.update({f"{key}_buffer_samples": value for key, value in vis_dict})
 
             print_results(it, logger, cfg)
 

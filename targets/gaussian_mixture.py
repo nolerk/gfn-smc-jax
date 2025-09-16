@@ -1,3 +1,4 @@
+from typing import Callable
 import chex
 import distrax
 import jax
@@ -66,9 +67,8 @@ class GaussianMixtureModel(Target):
 
     def log_prob(self, x: chex.Array) -> chex.Array:
         batched = x.ndim == 2
-
         if not batched:
-            x = x[None,]
+            x = x[None]
 
         log_prob = self.mixture_distribution.log_prob(x)
 
@@ -86,7 +86,14 @@ class GaussianMixtureModel(Target):
         entropy = -jnp.sum(mode_dist * (jnp.log(mode_dist) / jnp.log(self.num_components)))
         return entropy
 
-    def visualise(self, samples: chex.Array = None, axes=None, show=False, prefix="") -> dict:
+    def visualise(
+        self,
+        samples: chex.Array = None,
+        axes=None,
+        show=False,
+        prefix="",
+        log_prob_fn: Callable[[chex.Array], chex.Array] | None = None,
+    ) -> dict:
         plt.close()
         bounds = (self.min_mean_val * 1.8, self.max_mean_val * 1.8)
         fig = plt.figure(figsize=(6, 6))
@@ -95,13 +102,14 @@ class GaussianMixtureModel(Target):
         plot_marginal_pair(
             samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
         )
+        log_prob_fn = log_prob_fn or self.log_prob
         plot_contours_2D(
-            self.log_prob, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=100
+            log_prob_fn, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=100
         )
         plt.xticks([])
         plt.yticks([])
 
-        wb = {"figures/vis": [wandb.Image(fig)]}
+        wb = {f"figures/{prefix + '_' if prefix else ''}vis": [wandb.Image(fig)]}
         if show:
             plt.show()
 

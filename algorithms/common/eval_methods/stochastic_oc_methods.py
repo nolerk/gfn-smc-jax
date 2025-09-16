@@ -89,7 +89,7 @@ def get_eval_fn(rnd, target, target_xs, cfg):
             logger["KL/eubo"].append(eubo)
             logger["ESS/forward"].append(fwd_ess)
 
-        logger.update(target.visualise(samples=samples, show=cfg.visualize_samples))
+        logger.update(target.visualise(samples=samples))
 
         if cfg.compute_emc and cfg.target.has_entropy:
             logger["other/EMC"].append(target.entropy(samples))

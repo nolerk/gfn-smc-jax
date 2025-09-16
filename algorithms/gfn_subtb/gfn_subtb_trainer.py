@@ -14,7 +14,8 @@ import optax
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
 from algorithms.gfn_subtb.buffer import build_intermediate_state_buffer
-from algorithms.gfn_subtb.gfn_subtb_rnd import rnd, loss_fn
+from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn, rnd
+from algorithms.gfn_subtb.visualise import visualise_intermediate_distribution
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
 from utils.print_utils import print_results
@@ -22,35 +23,43 @@ from utils.print_utils import print_results
 
 def gfn_subtb_trainer(cfg, target):
     key_gen = jax.random.PRNGKey(cfg.seed)
-    dim = target.dim
-    alg_cfg = cfg.algorithm
 
+    dim = target.dim
     target_xs = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
+    alg_cfg = cfg.algorithm
+    batch_size = alg_cfg.batch_size
+    num_steps = alg_cfg.num_steps
+    n_chunks = alg_cfg.n_chunks
+    reference_process = alg_cfg.reference_process
+    noise_schedule = alg_cfg.noise_schedule
+
     # Define initial and target density
-    if alg_cfg.reference_process == "pinned_brownian":  # Following PIS
+    if reference_process == "pinned_brownian":  # Following PIS
+        initial_dist = None  # actually, the initial distribution is Dirac delta at the origin
         aux_tuple = (dim,)
-    elif alg_cfg.reference_process in ["ou", "ou_dds"]:  # DIS or DDS
+    elif reference_process in ["ou", "ou_dds"]:  # DIS or DDS
         initial_dist = distrax.MultivariateNormalDiag(
             jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
         )
         aux_tuple = (alg_cfg.init_std, initial_dist.sample, initial_dist.log_prob)
-        if alg_cfg.reference_process == "ou_dds":
+        if reference_process == "ou_dds":
             aux_tuple = (*aux_tuple, alg_cfg.noise_scale)  # DDS
     else:
-        raise ValueError(f"Reference process {alg_cfg.reference_process} not supported.")
+        raise ValueError(f"Reference process {reference_process} not supported.")
 
     # Initialize the buffer
     use_buffer = alg_cfg.buffer.use
-    buffer = buffer_state = None
+    buffer = buffer_state = buffer_cfg = None
     if use_buffer:
+        buffer_cfg = alg_cfg.buffer
         buffer = build_intermediate_state_buffer(
             dim=dim,
-            max_length=alg_cfg.buffer.max_length_in_batches * alg_cfg.batch_size,
-            prioritize_by=alg_cfg.buffer.prioritize_by,
-            target_ess=alg_cfg.buffer.target_ess,
-            sampling_method=alg_cfg.buffer.sampling_method,
-            rank_k=alg_cfg.buffer.rank_k,
+            max_length=buffer_cfg.max_length_in_batches * batch_size,
+            prioritize_by=buffer_cfg.prioritize_by,
+            target_ess=buffer_cfg.target_ess,
+            sampling_method=buffer_cfg.sampling_method,
+            rank_k=buffer_cfg.rank_k,
         )
         buffer_state = buffer.init(dtype=target_xs.dtype, device=target_xs.device)
 
@@ -64,31 +73,38 @@ def gfn_subtb_trainer(cfg, target):
 
     rnd_partial_base = partial(
         rnd,
-        reference_process=alg_cfg.reference_process,
+        reference_process=reference_process,
         aux_tuple=aux_tuple,
         target=target,
-        num_steps=cfg.algorithm.num_steps,
-        noise_schedule=cfg.algorithm.noise_schedule,
+        num_steps=num_steps,
+        noise_schedule=noise_schedule,
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
     )
-    loss_fn_base = partial(loss_fn, n_chunks=alg_cfg.n_chunks, target_params=target_params)
+    loss_fn_base = partial(loss_fn, n_chunks=n_chunks, target_params=target_params)
 
     # Define the function to be JIT-ed for FWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
     def loss_fwd_grad_fn(key, model_state, params, invtemp=1.0):
-        rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
+        rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
-    # --- Define the function to be JIT-ed for BWD pass ---
+    # Define the function to be JIT-ed for FWD pass without gradients
+    @jax.jit
+    def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
+        # prior_to_target=True, terminal_xs=None
+        rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
+        return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
+
+    # Define the function to be JIT-ed for BWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
     def loss_bwd_grad_fn(key, model_state, params, terminal_xs, invtemp=1.0):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
-            batch_size=alg_cfg.batch_size,
+            batch_size=batch_size,
             prior_to_target=False,
             terminal_xs=terminal_xs,
         )
@@ -104,16 +120,10 @@ def gfn_subtb_trainer(cfg, target):
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
     ### Prefill phase
-    if use_buffer and alg_cfg.buffer.prefill_steps > 0:
+    if use_buffer and buffer_cfg.prefill_steps > 0:
         # Define the function to be JIT-ed for FWD pass
-        @jax.jit
-        def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
-            # prior_to_target=True, terminal_xs=None
-            rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
-            return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
-
         assert buffer is not None and buffer_state is not None
-        for _ in range(alg_cfg.buffer.prefill_steps):
+        for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
             _, (
                 trajectories,
@@ -138,7 +148,7 @@ def gfn_subtb_trainer(cfg, target):
         )
 
         # On-policy training with forward samples
-        if not use_buffer or it % (alg_cfg.buffer.bwd_to_fwd_ratio + 1) == 0:
+        if not use_buffer or it % (buffer_cfg.bwd_to_fwd_ratio + 1) == 0:
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
             grads, (
@@ -167,7 +177,7 @@ def gfn_subtb_trainer(cfg, target):
 
             # Sample terminal states from buffer
             key, key_gen = jax.random.split(key_gen)
-            samples, indices = buffer.sample(buffer_state, key, alg_cfg.batch_size)
+            samples, indices = buffer.sample(buffer_state, key, batch_size)
 
             # Get grads with the off-policy samples
             grads, (
@@ -180,7 +190,7 @@ def gfn_subtb_trainer(cfg, target):
             model_state = model_state.apply_gradients(grads=grads)
 
             # Update scores in buffer if needed
-            if alg_cfg.buffer.update_score:
+            if buffer_cfg.update_score:
                 buffer_state = buffer.update_priority(
                     buffer_state,
                     indices,
@@ -209,9 +219,34 @@ def gfn_subtb_trainer(cfg, target):
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)
             logger["stats/step"].append(it)
-            logger["stats/nfe"].append((it + 1) * alg_cfg.batch_size)  # FIXME
+            logger["stats/nfe"].append((it + 1) * batch_size)  # FIXME
 
             logger.update(eval_fn(model_state, key))
+
+            # Visualize intermediate distributions (learned flows)
+            # Obtain trajectories from the model
+            key, key_gen = jax.random.split(key_gen)
+            _, (
+                trajectories,
+                log_pbs_over_pfs,
+                _,  # subtb_discrepancy
+                log_rewards,
+                subtb_losses,
+            ) = loss_fwd_nograd_fn(key, model_state, model_state.params, invtemp=1.0)
+            vis_dict = visualise_intermediate_distribution(
+                target.visualise,
+                [i * (num_steps // n_chunks) for i in range(n_chunks)],
+                num_steps,
+                trajectories,
+                model_state,
+                alg_cfg.partial_energy,
+                batch_size,
+                reference_process,
+                noise_schedule,
+                initial_dist,
+                target.log_prob,
+            )
+            logger.update(vis_dict)
 
             # Evaluate buffer samples
             if use_buffer:
@@ -228,8 +263,8 @@ def gfn_subtb_trainer(cfg, target):
                         if target_xs is not None
                         else jnp.inf
                     )
-                viz_dict = target.visualise(samples=buffer_xs, show=cfg.visualize_samples).items()
-                logger.update({f"{key}_buffer_samples": value for key, value in viz_dict})
+                vis_dict = target.visualise(samples=buffer_xs).items()
+                logger.update({f"{key}_buffer_samples": value for key, value in vis_dict})
 
             print_results(it, logger, cfg)
 

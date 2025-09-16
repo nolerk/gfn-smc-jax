@@ -340,7 +340,7 @@ def smc_advanced(cfg, target):
     logger["lnZ"] = lnZ.item()
     logger["elbo"] = elbo.item()
     logger["wallclock"] = time_elapsed
-    logger["vis"] = target.visualise(final_samples, show=True)
+    logger["vis"] = target.visualise(final_samples)
 
     if cfg.use_wandb:
         wandb.log(logger)

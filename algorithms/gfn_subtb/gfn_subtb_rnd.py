@@ -9,6 +9,18 @@ from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
 
 
+def get_flow_bias(t, ref_log_prob, log_prob):
+    return (1 - t) * ref_log_prob + t * log_prob
+
+
+def ref_log_prob_pinned_brownian(s, t, sigma_t):
+    ref_log_var = jnp.log((sigma_t**2) * jnp.array(t))
+    log_p_ref = -0.5 * (
+        jnp.log(2 * jnp.pi) + ref_log_var + jnp.exp(-ref_log_var) * jnp.square(s)
+    ).sum(-1)
+    return log_p_ref
+
+
 def per_sample_rnd_pinned_brownian(
     seed,
     model_state,
@@ -25,13 +37,6 @@ def per_sample_rnd_pinned_brownian(
 ):
     dim = aux_tuple
     dt = 1.0 / num_steps
-
-    def get_partial_energy(s, t, sigma_t, log_prob):
-        ref_log_var = jnp.log((sigma_t**2) * jnp.array(t))
-        log_p_ref = -0.5 * (
-            jnp.log(2 * jnp.pi) + ref_log_var + jnp.exp(-ref_log_var) * jnp.square(s)
-        ).sum(-1)
-        return (1 - t) * log_p_ref + t * log_prob
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -55,12 +60,13 @@ def per_sample_rnd_pinned_brownian(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            log_f_bias = jax.lax.cond(
+            ref_log_prob = jax.lax.cond(
                 step == 0,
                 lambda _: 0.0,
-                lambda args: get_partial_energy(args[0], args[1], args[2], args[3]),
-                operand=(s, t, sigma_t, log_prob),
+                lambda args: ref_log_prob_pinned_brownian(args[0], args[1], args[2]),
+                operand=(s, t, sigma_t),
             )
+            log_f_bias = get_flow_bias(t, ref_log_prob, log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -135,12 +141,13 @@ def per_sample_rnd_pinned_brownian(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            log_f_bias = jax.lax.cond(
+            ref_log_prob = jax.lax.cond(
                 step == 0,
                 lambda _: 0.0,
-                lambda args: get_partial_energy(args[0], args[1], args[2], args[3]),
-                operand=(s, t, sigma_t, log_prob),
+                lambda args: ref_log_prob_pinned_brownian(args[0], args[1], args[2]),
+                operand=(s, t, sigma_t),
             )
+            log_f_bias = get_flow_bias(t, ref_log_prob, log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -226,9 +233,6 @@ def per_sample_rnd_ou_dds(
     init_std, init_sampler, init_log_prob, noise_scale = aux_tuple
     betas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
 
-    def get_partial_energy(s, t, log_prob):
-        return (1 - t) * init_log_prob(s) + t * log_prob
-
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
         step = per_step_input
@@ -247,7 +251,7 @@ def per_sample_rnd_ou_dds(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            log_f_bias = get_partial_energy(s, t, log_prob)
+            log_f_bias = get_flow_bias(t, init_log_prob(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -307,7 +311,7 @@ def per_sample_rnd_ou_dds(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            log_f_bias = get_partial_energy(s, t, log_prob)
+            log_f_bias = get_flow_bias(t, init_log_prob(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -509,7 +513,7 @@ def loss_fn(
     )
 
     return jnp.mean(subtb_losses.mean(-1)), (
-        trajectories[:, chunk_size::chunk_size],
+        trajectories,
         jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
         jax.lax.stop_gradient(-subtb_discrepancy),  # log(f(s')pb(s'->s)/f(s)pf(s->s'))
         -terminal_costs,  # log_rewards

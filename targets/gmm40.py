@@ -1,3 +1,4 @@
+from typing import Callable
 import chex
 import distrax
 import jax
@@ -48,7 +49,7 @@ class GMM40(Target):
     def log_prob(self, x: chex.Array) -> chex.Array:
         batched = x.ndim == 2
         if not batched:
-            x = x[None,]
+            x = x[None]
 
         log_prob = self.distribution.log_prob(x)
 
@@ -69,7 +70,14 @@ class GMM40(Target):
         entropy = -jnp.sum(mode_dist * (jnp.log(mode_dist) / jnp.log(self.n_mixes)))
         return entropy
 
-    def visualise(self, samples: chex.Array, axes=None, show=False, prefix="") -> dict:
+    def visualise(
+        self,
+        samples: chex.Array,
+        axes=None,
+        show=False,
+        prefix="",
+        log_prob_fn: Callable[[chex.Array], chex.Array] | None = None,
+    ) -> dict:
         plt.close()
         fig = plt.figure(figsize=(6, 6))
         ax = fig.add_subplot()
@@ -78,15 +86,16 @@ class GMM40(Target):
         plot_marginal_pair(
             samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
         )
+        log_prob_fn = log_prob_fn or self.log_prob
         plot_contours_2D(
-            self.log_prob, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=100
+            log_prob_fn, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=100
         )
         plt.xticks([])
         plt.yticks([])
         # import os
         # plt.savefig(os.path.join(project_path('./samples/gaussian_mixture40'), f"{prefix}gmm40.pdf"), bbox_inches='tight', pad_inches=0.1)
 
-        wb = {"figures/vis": [wandb.Image(fig)]}
+        wb = {f"figures/{prefix + '_' if prefix else ''}vis": [wandb.Image(fig)]}
         if show:
             plt.show()
 
