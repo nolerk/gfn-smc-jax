@@ -12,13 +12,13 @@ reference_process: pinned_brownian  # ou or pinned_brownian
 init_std: ${target.gfn_subtb.init_std}  # for ou
 max_diffusion: ${target.gfn_subtb.max_diffusion}  # for pinned_brownian or ou
 noise_scale: 6.  # for ou_dds
+init_logZ: ${target.gfn_tb.init_logZ}  # for ou or ou_dds
+logZ_step_size: ${target.gfn_tb.logZ_step_size}  # for ou or ou_dds
 init_invtemp: 1.
-init_logZ: ${target.gfn_tb.init_logZ}
-logZ_step_size: ${target.gfn_tb.logZ_step_size}
 
 # Learning rate scheduler
 lr_schedule:
-  type: multistep  # multistep | cosine | constant
+  type: constant  # multistep | cosine | constant
   milestones: [20000, 30000]  # iteration indices at which to decay
   gamma: 0.3  # multiply LR by gamma at each milestone
 

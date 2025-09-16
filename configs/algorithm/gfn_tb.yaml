@@ -16,7 +16,7 @@ init_invtemp: 1.
 
 # Learning rate scheduler
 lr_schedule:
-  type: multistep  # multistep | cosine | constant
+  type: constant  # multistep | cosine | constant
   milestones: [20000, 30000]  # iteration indices at which to decay
   gamma: 0.3  # multiply LR by gamma at each milestone
 

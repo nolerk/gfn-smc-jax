@@ -1,11 +1,8 @@
-from typing import List
-
 import chex
 import distrax
 import jax
 import jax.numpy as jnp
 import jax.random as random
-import matplotlib
 import numpy as np
 import numpyro.distributions as dist
 import wandb
@@ -13,9 +10,6 @@ from matplotlib import pyplot as plt
 from scipy.stats import wishart
 
 from targets.base_target import Target
-from utils.path_utils import project_path
-
-# matplotlib.use('agg')
 
 
 class GaussianMixtureModel(Target):

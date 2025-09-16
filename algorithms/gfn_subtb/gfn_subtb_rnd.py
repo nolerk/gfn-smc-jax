@@ -485,26 +485,22 @@ def loss_fn(
         log_fs_tgt = log_fs
 
     # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs_tgt[:, 1:]
+    # subtb_discrepancy1 = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
+    # The below is equivalent to the above lines but avoids numerical instability.
+    subtb_discrepancy1 = (
+        log_fs[:, :-1:chunk_size]
+        + log_pfs_over_pbs.reshape(bs, n_chunks, -1).sum(-1)
+        - log_fs_tgt[:, chunk_size::chunk_size]
+    )
 
-    # IDK why but this version seems to give better results than the simpler one commented out above.
-    _log_fs = jnp.zeros_like(log_fs)
-    _log_fs = _log_fs.at[:, ::chunk_size].set(log_fs[:, ::chunk_size])
-    if target_params is not None:
-        _log_fs_tgt = jnp.zeros_like(log_fs_tgt)
-        _log_fs_tgt = _log_fs_tgt.at[:, ::chunk_size].set(log_fs_tgt[:, ::chunk_size])
-    else:
-        _log_fs_tgt = _log_fs
-    db_discrepancy = _log_fs[:, :-1] + log_pfs_over_pbs - _log_fs_tgt[:, 1:]
-    subtb_discrepancy1 = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
-    subtb_discrepancy = subtb_discrepancy1
+    log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
+    subtb_discrepancy2 = (
+        log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs_tgt[:, [-1]]
+    ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
 
-    # log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
-    # subtb_discrepancy2 = (
-    #     log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs_tgt[:, [-1]]
-    # )
+    # subtb_discrepancy = subtb_discrepancy1
     # subtb_discrepancy = subtb_discrepancy2
-
-    # subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
+    subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
 
     subtb_losses = jnp.where(
         jnp.abs(subtb_discrepancy) <= huber_delta,
