@@ -472,7 +472,7 @@ def loss_fn(
     )
 
     log_pfs_over_pbs = log_pfs_over_pbs.at[:, 0].set(log_pfs_over_pbs[:, 0] + init_fwd_log_probs)
-    return jnp.mean(subtb_losses.mean(-1)), (
+    return jnp.mean(subtb_losses.sum(-1)), (
         trajectories,
         jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
         -terminal_costs,  # log_rewards

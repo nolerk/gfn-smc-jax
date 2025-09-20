@@ -237,7 +237,7 @@ def gfn_tbsubtb_trainer(cfg, target):
             wandb.log(
                 {
                     "tb_loss": jnp.mean(tb_losses),
-                    "subtb_loss": jnp.mean(subtb_losses.mean(-1)),
+                    "subtb_loss": jnp.mean(subtb_losses.sum(-1)),
                     "logZ_learned": model_state.params["params"]["logZ"],
                 },
                 step=it,
@@ -264,7 +264,7 @@ def gfn_tbsubtb_trainer(cfg, target):
                 model_state = model_state.apply_gradients_flow(grads=grads)
 
             if cfg.use_wandb:
-                wandb.log({f"alt_subtb_loss": jnp.mean(subtb_losses.mean(-1))}, step=it)
+                wandb.log({f"alt_subtb_loss": jnp.mean(subtb_losses.sum(-1))}, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)

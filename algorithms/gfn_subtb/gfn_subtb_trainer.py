@@ -211,7 +211,7 @@ def gfn_subtb_trainer(cfg, target):
         if cfg.use_wandb:
             wandb.log(
                 {
-                    "loss": jnp.mean(subtb_losses.mean(-1)),
+                    "loss": jnp.mean(subtb_losses.sum(-1)),
                     "logZ_learned": model_state.params["params"]["logZ"],
                 },
                 step=it,
