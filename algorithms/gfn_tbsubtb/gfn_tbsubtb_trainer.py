@@ -261,7 +261,7 @@ def gfn_tbsubtb_trainer(cfg, target):
                 ) = loss_bwd_grad_fn_subtb(
                     key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
                 )
-                model_state = model_state.apply_gradients(grads=grads)
+                model_state = model_state.apply_gradients_flow(grads=grads)
 
             if cfg.use_wandb:
                 wandb.log({f"alt_subtb_loss": jnp.mean(subtb_losses.mean(-1))}, step=it)
