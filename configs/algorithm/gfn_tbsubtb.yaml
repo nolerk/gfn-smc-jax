@@ -8,12 +8,12 @@ grad_clip: 1.
 n_chunks: 10
 partial_energy: True
 logflow_step_size: ${target.gfn_subtb.logflow_step_size}
-reference_process: pinned_brownian  # ou or pinned_brownian
+reference_process: ${target.gfn_subtb.reference_process}  # ou or pinned_brownian
 init_std: ${target.gfn_subtb.init_std}  # for ou
 max_diffusion: ${target.gfn_subtb.max_diffusion}  # for pinned_brownian or ou
 noise_scale: 6.  # for ou_dds
-init_logZ: ${target.gfn_tb.init_logZ}  # for ou or ou_dds
-logZ_step_size: ${target.gfn_tb.logZ_step_size}  # for ou or ou_dds
+init_logZ: ${target.gfn_subtb.init_logZ}  # for ou or ou_dds
+logZ_step_size: ${target.gfn_subtb.logZ_step_size}  # for ou or ou_dds
 init_invtemp: 1.
 learn_flow_every: 400
 learn_flow_iters: 400

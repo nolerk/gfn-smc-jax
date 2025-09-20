@@ -87,7 +87,7 @@ gbs:  # General Bridge Sampler
   step_size: 5e-4
 
 gfn_tb: # Trajectory Balance
-  reference_process: pinned_brownian  # pinned_brownian, ou, or ou_dds
+  reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
   init_std: 40.  # for ou or ou_dss
   max_diffusion: 40.  # for pinned_brownian or ou
   step_size: 1e-3
@@ -95,11 +95,13 @@ gfn_tb: # Trajectory Balance
   init_logZ: 0.
 
 gfn_subtb: # Sub-Trajectory Balance
-  reference_process: pinned_brownian  # pinned_brownian, ou, or ou_dds
+  reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
   init_std: 40.  # for ou or ou_dds
   max_diffusion: 40.  # for pinned_brownian or ou
   step_size: 1e-3
   logflow_step_size: 1e-3
+  logZ_step_size: 1e-1  # for ou or ou_dds
+  init_logZ: 0.  # for ou or ou_dds
 
 all: # Parameters that are shared between all algorithms
   batch_size: 2000
