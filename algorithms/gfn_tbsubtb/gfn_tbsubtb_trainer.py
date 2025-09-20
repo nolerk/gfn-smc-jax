@@ -92,13 +92,13 @@ def gfn_tbsubtb_trainer(cfg, target):
     # Define the function to be JIT-ed for FWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_fwd_grad_fn_tb(key, model_state, params, invtemp=1.0):
+    def loss_fwd_grad_fn(key, model_state, params, invtemp=1.0):
         rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
     # Define the function to be JIT-ed for FWD pass without gradients
     @jax.jit
-    def loss_fwd_nograd_fn_tb(key, model_state, params, invtemp=1.0):
+    def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
         # prior_to_target=True, terminal_xs=None
         rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
@@ -106,7 +106,7 @@ def gfn_tbsubtb_trainer(cfg, target):
     # Define the function to be JIT-ed for BWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_bwd_grad_fn_tb(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
+    def loss_bwd_grad_fn(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
@@ -117,13 +117,13 @@ def gfn_tbsubtb_trainer(cfg, target):
         )
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
-    loss_bwd_grad_fn_subtb = lambda *args, **kwargs: None
+    loss_bwd_grad_fn_flow = lambda *args, **kwargs: None
     if alg_cfg.alternate:
-        loss_fn_subtb_base = partial(loss_fn_subtb, n_chunks=n_chunks)
+        loss_fn_flow_base = partial(loss_fn_subtb, n_chunks=n_chunks)
 
         @jax.jit
         @partial(jax.grad, argnums=2, has_aux=True)
-        def loss_bwd_grad_fn_subtb(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
+        def loss_bwd_grad_fn_flow(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
             rnd_p = partial(
                 rnd_partial_base,
                 batch_size=batch_size,
@@ -131,7 +131,7 @@ def gfn_tbsubtb_trainer(cfg, target):
                 terminal_xs=terminal_xs,
                 log_rewards=log_rewards,
             )
-            return loss_fn_subtb_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
+            return loss_fn_flow_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
@@ -175,7 +175,7 @@ def gfn_tbsubtb_trainer(cfg, target):
                 log_rewards,
                 tb_losses,
                 subtb_losses,
-            ) = loss_fwd_nograd_fn_tb(key, model_state, model_state.params)
+            ) = loss_fwd_nograd_fn(key, model_state, model_state.params)
             buffer_state = buffer.add(
                 buffer_state,
                 trajectories[:, -1],
@@ -195,7 +195,7 @@ def gfn_tbsubtb_trainer(cfg, target):
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
             grads, (trajectories, log_pbs_over_pfs, log_rewards, tb_losses, subtb_losses) = (
-                loss_fwd_grad_fn_tb(key, model_state, model_state.params, invtemp=invtemp)
+                loss_fwd_grad_fn(key, model_state, model_state.params, invtemp=invtemp)
             )
             model_state = model_state.apply_gradients(grads=grads)
 
@@ -221,7 +221,7 @@ def gfn_tbsubtb_trainer(cfg, target):
             # Get grads with the off-policy samples
             key, key_gen = jax.random.split(key_gen)
             grads, (trajectories, log_pbs_over_pfs, log_rewards, tb_losses, subtb_losses) = (
-                loss_bwd_grad_fn_tb(
+                loss_bwd_grad_fn(
                     key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
                 )
             )
@@ -258,7 +258,7 @@ def gfn_tbsubtb_trainer(cfg, target):
                     log_rewards,
                     _,
                     subtb_losses,
-                ) = loss_bwd_grad_fn_subtb(
+                ) = loss_bwd_grad_fn_flow(
                     key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
                 )
                 model_state = model_state.apply_gradients_flow(grads=grads)
