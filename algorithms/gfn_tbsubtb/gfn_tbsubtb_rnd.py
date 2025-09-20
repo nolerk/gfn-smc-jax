@@ -81,7 +81,7 @@ def loss_fn_joint(
         jnp.square(subtb_discrepancy),
         huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
     )
-    return jnp.mean(tb_losses + subtb_weight * subtb_losses.sum(-1)), (
+    return jnp.mean(tb_losses + subtb_weight * subtb_losses.mean(-1)), (
         trajectories,
         jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
         -terminal_costs,  # log_rewards
@@ -199,7 +199,7 @@ def loss_fn_subtb(
     )
 
     log_pfs_over_pbs = log_pfs_over_pbs.at[:, 0].set(log_pfs_over_pbs[:, 0] + init_fwd_log_probs)
-    return jnp.mean(subtb_losses.sum(-1)), (
+    return jnp.mean(subtb_losses.mean(-1)), (
         trajectories,
         jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
         -terminal_costs,  # log_rewards
