@@ -101,6 +101,7 @@ class PISGRADNet(nn.Module):
 
     use_lp: bool = True
     learn_flow: bool = False  # For DB and SubTB
+    share_embeddings: bool = False
 
     def setup(self):
         self.timestep_phase = self.param(
@@ -142,9 +143,19 @@ class PISGRADNet(nn.Module):
             ]
         )
 
-        self.logflow_net = None
+        self.flow_state_time_net = None
         if self.learn_flow:
-            self.logflow_net = nn.Sequential(
+            self.flow_timestep_phase = None
+            self.flow_time_coder_state = None
+            if not self.share_embeddings:
+                self.flow_timestep_phase = self.param(
+                    "flow_timestep_phase", nn.initializers.zeros_init(), (1, self.num_hid)
+                )
+                self.flow_time_coder_state = nn.Sequential(
+                    [nn.Dense(self.num_hid), nn.gelu, nn.Dense(self.num_hid)]
+                )
+
+            self.flow_state_time_net = nn.Sequential(
                 [nn.Sequential([nn.Dense(self.num_hid), nn.gelu]) for _ in range(self.num_layers)]
                 + [
                     nn.Dense(
@@ -158,6 +169,11 @@ class PISGRADNet(nn.Module):
     def get_fourier_features(self, timesteps):
         sin_embed_cond = jnp.sin((self.timestep_coeff * timesteps) + self.timestep_phase)
         cos_embed_cond = jnp.cos((self.timestep_coeff * timesteps) + self.timestep_phase)
+        return jnp.concatenate([sin_embed_cond, cos_embed_cond], axis=-1)
+
+    def get_flow_fourier_features(self, timesteps):
+        sin_embed_cond = jnp.sin((self.timestep_coeff * timesteps) + self.flow_timestep_phase)
+        cos_embed_cond = jnp.cos((self.timestep_coeff * timesteps) + self.flow_timestep_phase)
         return jnp.concatenate([sin_embed_cond, cos_embed_cond], axis=-1)
 
     def __call__(self, input_array, time_array, lgv_term):
@@ -178,7 +194,17 @@ class PISGRADNet(nn.Module):
 
         log_flow = None
         if self.learn_flow:
-            assert self.logflow_net is not None
-            log_flow = self.logflow_net(extended_input).squeeze(-1)
+            assert self.flow_state_time_net is not None
+            if not self.share_embeddings:
+                assert self.flow_timestep_phase is not None
+                assert self.flow_time_coder_state is not None
+                flow_time_array_emb = self.get_flow_fourier_features(time_array)
+                if len(input_array.shape) == 1:
+                    flow_time_array_emb = flow_time_array_emb[0]
+                flow_t_net1 = self.flow_time_coder_state(flow_time_array_emb)
+                flow_extended_input = jnp.concatenate((input_array, flow_t_net1), axis=-1)
+            else:
+                flow_extended_input = input_array
+            log_flow = self.flow_state_time_net(flow_extended_input).squeeze(-1)
 
         return out_state, log_flow

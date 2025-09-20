@@ -90,7 +90,11 @@ def init_model(key, dim, alg_cfg) -> TrainState:
                 )
 
             def label_map(path, _):
-                if "logflow_net" in path:
+                if (
+                    "flow_state_time_net" in path
+                    or "flow_time_coder_state" in path
+                    or "flow_timestep_phase" in path
+                ):
                     return "logflow_optim"
                 elif "logZ" in path:
                     return "logZ_optim"
