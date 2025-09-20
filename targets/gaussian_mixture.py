@@ -31,10 +31,10 @@ class GaussianMixtureModel(Target):
         seed = jax.random.PRNGKey(0)
 
         # set mixture components
-        locs = jax.random.uniform(
+        self.locs = jax.random.uniform(
             seed, minval=self.min_mean_val, maxval=self.max_mean_val, shape=(num_components, dim)
         )
-        covariances = []
+        self.covariances = []
         for _ in range(num_components):
             seed, subkey = random.split(seed)
 
@@ -43,23 +43,26 @@ class GaussianMixtureModel(Target):
             np.random.seed(seed_value)
 
             cov_matrix = wishart.rvs(df=degree_of_freedom_wishart, scale=jnp.eye(dim))
-            covariances.append(cov_matrix)
+            self.covariances.append(cov_matrix)
+        self.covariances = jnp.array(self.covariances)
 
-        component_dist = distrax.MultivariateNormalFullCovariance(locs, jnp.array(covariances))
+        component_dist = distrax.MultivariateNormalFullCovariance(self.locs, self.covariances)
 
         # set mixture weights
         uniform_mws = True
         if uniform_mws:
-            mixture_weights = distrax.Categorical(logits=jnp.ones(num_components) / num_components)
+            self.mixture_weights = distrax.Categorical(
+                logits=jnp.ones(num_components) / num_components
+            )
         else:
-            mixture_weights = distrax.Categorical(
+            self.mixture_weights = distrax.Categorical(
                 logits=dist.Uniform(low=min_val_mixture_weight, high=max_val_mixture_weight).sample(
                     seed, sample_shape=(num_components,)
                 )
             )
 
         self.mixture_distribution = distrax.MixtureSameFamily(
-            mixture_distribution=mixture_weights, components_distribution=component_dist
+            mixture_distribution=self.mixture_weights, components_distribution=component_dist
         )
 
     def sample(self, seed: chex.PRNGKey, sample_shape: chex.Shape) -> chex.Array:
@@ -71,10 +74,32 @@ class GaussianMixtureModel(Target):
             x = x[None]
 
         log_prob = self.mixture_distribution.log_prob(x)
-
         if not batched:
             log_prob = jnp.squeeze(log_prob, axis=0)
+        return log_prob
 
+    def log_prob_t(
+        self,
+        x: chex.Array,
+        lambda_t: float,  # 1 - exp(-2\int_0^t \beta_s ds)
+        init_std: float,  # \sigma
+    ) -> chex.Array:
+        batched = x.ndim == 2
+        if not batched:
+            x = x[None]
+
+        components_dist = distrax.MultivariateNormalFullCovariance(
+            jnp.sqrt(1 - lambda_t) * self.locs,
+            (1 - lambda_t) * self.covariances + init_std**2 * lambda_t * jnp.eye(self.dim),
+        )
+        t_marginal_distribution = distrax.MixtureSameFamily(
+            mixture_distribution=self.mixture_weights,
+            components_distribution=components_dist,
+        )
+
+        log_prob = t_marginal_distribution.log_prob(x)
+        if not batched:
+            log_prob = jnp.squeeze(log_prob, axis=0)
         return log_prob
 
     def entropy(self, samples: chex.Array = None):
@@ -88,8 +113,7 @@ class GaussianMixtureModel(Target):
 
     def visualise(
         self,
-        samples: chex.Array = None,
-        axes=None,
+        samples: chex.Array | None = None,
         show=False,
         prefix="",
         log_prob_fn: Callable[[chex.Array], chex.Array] | None = None,
@@ -99,12 +123,13 @@ class GaussianMixtureModel(Target):
         fig = plt.figure(figsize=(6, 6))
         ax = fig.add_subplot()
         marginal_dims = (0, 1)
-        plot_marginal_pair(
-            samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
-        )
+        if samples is not None:
+            plot_marginal_pair(
+                samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
+            )
         log_prob_fn = log_prob_fn or self.log_prob
         plot_contours_2D(
-            log_prob_fn, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=100
+            log_prob_fn, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=50
         )
         plt.xticks([])
         plt.yticks([])

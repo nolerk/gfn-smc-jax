@@ -180,8 +180,8 @@ def gfn_tb_trainer(cfg, target):
                         if target_xs is not None
                         else jnp.inf
                     )
-                vis_dict = target.visualise(samples=buffer_xs).items()
-                logger.update({f"{key}_buffer_samples": value for key, value in vis_dict})
+                vis_dict = target.visualise(samples=buffer_xs)
+                logger.update({f"{key}_buffer_samples": value for key, value in vis_dict.items()})
 
             print_results(it, logger, cfg)
 

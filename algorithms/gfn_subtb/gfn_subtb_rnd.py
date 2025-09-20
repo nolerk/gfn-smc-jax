@@ -9,8 +9,8 @@ from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
 
 
-def get_flow_bias(t, ref_log_prob, log_prob):
-    return (1 - t) * ref_log_prob + t * log_prob
+def get_flow_bias(weight, ref_log_prob, log_prob):
+    return (1 - weight) * ref_log_prob + weight * log_prob
 
 
 def ref_log_prob_pinned_brownian(s, t, sigma_t):
@@ -217,7 +217,8 @@ def per_sample_rnd_ou_dds(
     log_reward: Array | None = None,
 ):
     init_std, init_sampler, init_log_prob, noise_scale = aux_tuple
-    betas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
+    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
+    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -237,13 +238,15 @@ def per_sample_rnd_ou_dds(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            log_f_bias = get_flow_bias(t, init_log_prob(s), log_prob)
+            # weight = jnp.sqrt((1 - alphas)[step:].prod())
+            weight = 1 - lambda_ts[step]
+            log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
 
         # Exponential integration of the SDE
-        sqrt_at = jnp.clip(jnp.sqrt(betas[step - 1]), 0, 1)
+        sqrt_at = jnp.clip(jnp.sqrt(alphas[step]), 0, 1)
         sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
@@ -252,8 +255,6 @@ def per_sample_rnd_ou_dds(
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
 
         # Compute backward SDE components
-        # sqrt_at_next = jnp.clip(jnp.sqrt(betas[step]), 0, 1)  # shouldn't we use step?
-        # sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at * s_next
         bwd_scale = sqrt_at * init_std
         bwd_log_prob = log_prob_kernel(s, bwd_mean, bwd_scale)
@@ -271,7 +272,7 @@ def per_sample_rnd_ou_dds(
         s_next = jax.lax.stop_gradient(s_next)
 
         # Compute backward SDE components
-        sqrt_at_next = jnp.clip(jnp.sqrt(betas[step - 1]), 0, 1)  # shouldn't we use step?
+        sqrt_at_next = jnp.clip(jnp.sqrt(alphas[step]), 0, 1)
         sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
         bwd_scale = sqrt_at_next * init_std
@@ -290,7 +291,9 @@ def per_sample_rnd_ou_dds(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            log_f_bias = get_flow_bias(t, init_log_prob(s), log_prob)
+            # weight = jnp.sqrt((1 - alphas)[step:].prod())
+            weight = 1 - lambda_ts[step]
+            log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias

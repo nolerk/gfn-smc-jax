@@ -7,41 +7,96 @@ import jax
 import jax.numpy as jnp
 from flax.training.train_state import TrainState
 
+from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_subtb.gfn_subtb_rnd import get_flow_bias, ref_log_prob_pinned_brownian
+
+
+def visualise_true_intermediate_distribution(
+    visualize_fn,
+    plot_steps: list[int],
+    num_steps: int,
+    reference_process: str,
+    noise_schedule: Callable[[float], float],
+    init_std: float,
+    noise_scale: float,
+    target_log_prob_fn: Callable[[chex.Array], chex.Array],
+    target_log_prob_t_fn: Callable[[chex.Array, float, float, float], chex.Array],
+) -> dict:
+    vis_dict = {}
+
+    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
+    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
+
+    for step in plot_steps:
+        t = step / num_steps
+
+        # Define the mean and covariance factors
+        _log_prob_t_fn = None
+        if reference_process == "pinned_brownian":
+            # TODO
+            raise NotImplementedError
+        elif reference_process == "ou":
+            # TODO
+            raise NotImplementedError
+        elif reference_process == "ou_dds":
+            if t == 1.0:
+                _log_prob_t_fn = target_log_prob_fn
+            else:
+                lambda_t = lambda_ts[step]
+                _log_prob_t_fn = partial(target_log_prob_t_fn, lambda_t=lambda_t, init_std=init_std)
+        else:
+            raise ValueError(f"Reference process {reference_process} not supported.")
+
+        assert _log_prob_t_fn is not None
+
+        vis_dict.update(visualize_fn(samples=None, prefix=f"t={t}", log_prob_fn=_log_prob_t_fn))
+    return vis_dict
 
 
 def visualise_intermediate_distribution(
     visualize_fn,
     plot_steps: list[int],
     num_steps: int,
-    trajectories: chex.Array,
+    trajectories: chex.Array | None,
     model_state: TrainState,
     partial_energy: bool,
     batch_size: int,
     reference_process: str,  # for flow bias
     noise_schedule: Callable[[float], float],  # for flow bias
     initial_dist: distrax.Distribution,  # for flow bias
+    noise_scale: float,  # for flow bias
     target_log_prob_fn: Callable[[chex.Array], chex.Array],  # for flow bias
 ) -> dict:
     vis_dict = {}
+
+    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
+    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
+
     for step in plot_steps:
         t = step / num_steps
-        intermediate_states = trajectories[:, step]
+        intermediate_states = None
+        if trajectories is not None:
+            intermediate_states = trajectories[:, step]
 
         # Define flow_bias function
         flow_bias_fn = None
         if partial_energy:
             if reference_process == "pinned_brownian":
+                weight = t
                 sigma_t = noise_schedule(step)
                 ref_log_prob_fn: Callable[[chex.Array], chex.Array] = partial(
                     ref_log_prob_pinned_brownian, t=t, sigma_t=sigma_t
                 )
-            elif reference_process in ["ou", "ou_dds"]:
+            elif reference_process == "ou":
+                # TODO
+                raise NotImplementedError
+            elif reference_process == "ou_dds":
+                weight = 1 - lambda_ts[step]
                 ref_log_prob_fn: Callable[[chex.Array], chex.Array] = initial_dist.log_prob
             else:
                 raise ValueError(f"Reference process {reference_process} not supported.")
             flow_bias_fn: Callable[[chex.Array], chex.Array] = lambda x: get_flow_bias(
-                t, ref_log_prob_fn(x), target_log_prob_fn(x)
+                weight, ref_log_prob_fn(x), target_log_prob_fn(x)
             )
 
         def intermediate_log_prob_fn(x: chex.Array) -> chex.Array:
@@ -80,6 +135,6 @@ def visualise_intermediate_distribution(
             return log_f
 
         vis_dict.update(
-            visualize_fn(intermediate_states, log_prob_fn=intermediate_log_prob_fn, prefix=f"t={t}")
+            visualize_fn(intermediate_states, prefix=f"t={t}", log_prob_fn=intermediate_log_prob_fn)
         )
     return vis_dict

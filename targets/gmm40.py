@@ -29,18 +29,18 @@ class GMM40(Target):
 
         key = jax.random.PRNGKey(seed)
         logits = jnp.ones(num_components)
-        mean = (
+        self.mean = (
             jax.random.uniform(shape=(num_components, dim), key=key, minval=-1.0, maxval=1.0)
             * loc_scaling
         )
-        scale = jnp.ones(shape=(num_components, dim)) * scale_scaling
+        self.scale = jnp.ones(shape=(num_components, dim)) * scale_scaling
 
-        mixture_dist = distrax.Categorical(logits=logits)
+        self.mixture_dist = distrax.Categorical(logits=logits)
         components_dist = distrax.Independent(
-            distrax.Normal(loc=mean, scale=scale), reinterpreted_batch_ndims=1
+            distrax.Normal(loc=self.mean, scale=self.scale), reinterpreted_batch_ndims=1
         )
         self.distribution = distrax.MixtureSameFamily(
-            mixture_distribution=mixture_dist,
+            mixture_distribution=self.mixture_dist,
             components_distribution=components_dist,
         )
 
@@ -52,10 +52,35 @@ class GMM40(Target):
             x = x[None]
 
         log_prob = self.distribution.log_prob(x)
-
         if not batched:
             log_prob = jnp.squeeze(log_prob, axis=0)
+        return log_prob
 
+    def log_prob_t(
+        self,
+        x: chex.Array,
+        lambda_t: float,  # 1 - exp(-2\int_0^t \beta_s ds)
+        init_std: float,  # \sigma
+    ) -> chex.Array:
+        batched = x.ndim == 2
+        if not batched:
+            x = x[None]
+
+        components_dist = distrax.Independent(
+            distrax.Normal(
+                loc=jnp.sqrt(1 - lambda_t) * self.mean,
+                scale=jnp.sqrt((1 - lambda_t) * self.scale**2 + init_std**2 * lambda_t),
+            ),
+            reinterpreted_batch_ndims=1,
+        )
+        t_marginal_distribution = distrax.MixtureSameFamily(
+            mixture_distribution=self.mixture_dist,
+            components_distribution=components_dist,
+        )
+
+        log_prob = t_marginal_distribution.log_prob(x)
+        if not batched:
+            log_prob = jnp.squeeze(log_prob, axis=0)
         return log_prob
 
     def sample(self, seed: chex.PRNGKey, sample_shape: chex.Shape = ()) -> chex.Array:
@@ -72,8 +97,7 @@ class GMM40(Target):
 
     def visualise(
         self,
-        samples: chex.Array,
-        axes=None,
+        samples: chex.Array | None = None,
         show=False,
         prefix="",
         log_prob_fn: Callable[[chex.Array], chex.Array] | None = None,
@@ -83,26 +107,22 @@ class GMM40(Target):
         ax = fig.add_subplot()
         marginal_dims = (0, 1)
         bounds = (-self._plot_bound, self._plot_bound)
-        plot_marginal_pair(
-            samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
-        )
         log_prob_fn = log_prob_fn or self.log_prob
         plot_contours_2D(
-            log_prob_fn, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=100
+            log_prob_fn, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=50
         )
+        if samples is not None:
+            plot_marginal_pair(
+                samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
+            )
         plt.xticks([])
         plt.yticks([])
-        # import os
-        # plt.savefig(os.path.join(project_path('./samples/gaussian_mixture40'), f"{prefix}gmm40.pdf"), bbox_inches='tight', pad_inches=0.1)
 
         wb = {f"figures/{prefix + '_' if prefix else ''}vis": [wandb.Image(fig)]}
         if show:
             plt.show()
 
         return wb
-        # import tikzplotlib
-        # import os
-        # tikzplotlib.save(os.path.join(project_path('./figures/'), f"gmm40.tex"))
 
 
 if __name__ == "__main__":

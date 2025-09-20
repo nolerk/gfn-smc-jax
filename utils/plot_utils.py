@@ -32,10 +32,11 @@ def plot_contours_2D(
 
     log_probs = sliced_log_prob(x_points)
     log_probs = jnp.clip(log_probs, a_min=-1000, a_max=None)
+    probs = jnp.exp(log_probs)
     x1 = x_points[:, 0].reshape(n_points, n_points)
     x2 = x_points[:, 1].reshape(n_points, n_points)
-    z = log_probs.reshape(n_points, n_points)
-    ax.contour(x1, x2, z, levels=levels)
+    z = probs.reshape(n_points, n_points)
+    ax.contourf(x1, x2, z, levels=levels)
 
 
 def plot_marginal_pair(
@@ -44,9 +45,16 @@ def plot_marginal_pair(
     marginal_dims: Tuple[int, int] = (0, 1),
     bounds: Tuple[float, float] = (-5, 5),
     alpha: float = 0.5,
+    max_points: int = 500,
 ):
     """Plot samples from marginal of distribution for a given pair of dimensions."""
     if not ax:
         fig, ax = plt.subplots(1)
     samples = jnp.clip(samples, bounds[0], bounds[1])
-    ax.plot(samples[:, marginal_dims[0]], samples[:, marginal_dims[1]], "o", alpha=alpha)
+    ax.scatter(
+        samples[:max_points, marginal_dims[0]],
+        samples[:max_points, marginal_dims[1]],
+        color="r",
+        alpha=alpha,
+        marker="x",
+    )

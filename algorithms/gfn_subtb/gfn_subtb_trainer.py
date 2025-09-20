@@ -14,7 +14,10 @@ from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
 from algorithms.gfn_subtb.buffer import build_intermediate_state_buffer
 from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn, loss_fn_tb_subtb, rnd
-from algorithms.gfn_subtb.visualise import visualise_intermediate_distribution
+from algorithms.gfn_subtb.visualise import (
+    visualise_intermediate_distribution,
+    visualise_true_intermediate_distribution,
+)
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
 from utils.print_utils import print_results
@@ -118,6 +121,27 @@ def gfn_subtb_trainer(cfg, target):
     )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
+    ### Plot the True intermediate distributions
+    if cfg.use_wandb and getattr(target, "log_prob_t", None) is not None:
+        true_vis_dict = visualise_true_intermediate_distribution(
+            target.visualise,
+            [i * (num_steps // n_chunks) for i in range(n_chunks + 1)],
+            num_steps,
+            reference_process,
+            noise_schedule,
+            alg_cfg.init_std,
+            alg_cfg.noise_scale,
+            target.log_prob,
+            target.log_prob_t,
+        )
+        wandb.log(
+            {
+                key.replace("figures/", "figures_true/"): value
+                for key, value in true_vis_dict.items()
+            },
+            step=0,
+        )
+
     ### Prefill phase
     if use_buffer and buffer_cfg.prefill_steps > 0:
         # Define the function to be JIT-ed for FWD pass
@@ -218,28 +242,23 @@ def gfn_subtb_trainer(cfg, target):
 
             # Visualize intermediate distributions (learned flows)
             # Obtain trajectories from the model
-            key, key_gen = jax.random.split(key_gen)
-            _, (
-                trajectories,
-                log_pbs_over_pfs,
-                _,  # subtb_discrepancy
-                log_rewards,
-                subtb_losses,
-            ) = loss_fwd_nograd_fn(key, model_state, model_state.params, invtemp=1.0)
-            vis_dict = visualise_intermediate_distribution(
-                target.visualise,
-                [i * (num_steps // n_chunks) for i in range(n_chunks)],
-                num_steps,
-                trajectories,
-                model_state,
-                alg_cfg.partial_energy,
-                batch_size,
-                reference_process,
-                noise_schedule,
-                initial_dist,
-                target.log_prob,
-            )
-            logger.update(vis_dict)
+            if cfg.use_wandb:
+                key, key_gen = jax.random.split(key_gen)
+                vis_dict = visualise_intermediate_distribution(
+                    target.visualise,
+                    [i * (num_steps // n_chunks) for i in range(n_chunks)],
+                    num_steps,
+                    None,  # trajectories,
+                    model_state,
+                    alg_cfg.partial_energy,
+                    batch_size,
+                    reference_process,
+                    noise_schedule,
+                    initial_dist,
+                    alg_cfg.noise_scale,
+                    target.log_prob,
+                )
+                logger.update(vis_dict)
 
             # Evaluate buffer samples
             if use_buffer:
@@ -256,8 +275,11 @@ def gfn_subtb_trainer(cfg, target):
                         if target_xs is not None
                         else jnp.inf
                     )
-                vis_dict = target.visualise(samples=buffer_xs).items()
-                logger.update({f"{key}_buffer_samples": value for key, value in vis_dict})
+                if cfg.use_wandb:
+                    vis_dict = target.visualise(samples=buffer_xs)
+                    logger.update(
+                        {f"{key}_buffer_samples": value for key, value in vis_dict.items()}
+                    )
 
             print_results(it, logger, cfg)
 
