@@ -79,13 +79,14 @@ def gfn_tb_trainer(cfg, target):
     # --- Define the function to be JIT-ed for BWD pass ---
     @partial(jax.jit)
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_bwd_grad_fn(key, model_state, params, terminal_xs, invtemp=1.0):
+    def loss_bwd_grad_fn(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
             batch_size=alg_cfg.batch_size,
             prior_to_target=False,
             terminal_xs=terminal_xs,
+            log_rewards=log_rewards,
         )
         return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
 
@@ -107,10 +108,10 @@ def gfn_tb_trainer(cfg, target):
         assert buffer is not None and buffer_state is not None
         for _ in range(alg_cfg.buffer.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
-            _, (x, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_nograd_fn(
+            _, (xs, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_nograd_fn(
                 key, model_state, model_state.params
             )
-            buffer_state = buffer.add(buffer_state, x, log_pbs_over_pfs, log_rewards, losses)
+            buffer_state = buffer.add(buffer_state, xs, log_pbs_over_pfs, log_rewards, losses)
 
     ### Training phase
     for it in range(alg_cfg.iters):
@@ -122,7 +123,7 @@ def gfn_tb_trainer(cfg, target):
         if not use_buffer or it % (alg_cfg.buffer.bwd_to_fwd_ratio + 1) == 0:
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
-            grads, (x, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_grad_fn(
+            grads, (xs, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_grad_fn(
                 key, model_state, model_state.params, invtemp=invtemp
             )
             model_state = model_state.apply_gradients(grads=grads)
@@ -130,7 +131,7 @@ def gfn_tb_trainer(cfg, target):
             # Add samples to buffer
             if use_buffer:
                 assert buffer is not None and buffer_state is not None
-                buffer_state = buffer.add(buffer_state, x, log_pbs_over_pfs, log_rewards, losses)
+                buffer_state = buffer.add(buffer_state, xs, log_pbs_over_pfs, log_rewards, losses)
 
         # Off-policy training with buffer samples
         else:
@@ -138,11 +139,11 @@ def gfn_tb_trainer(cfg, target):
 
             # Sample terminal states from buffer
             key, key_gen = jax.random.split(key_gen)
-            samples, indices = buffer.sample(buffer_state, key, alg_cfg.batch_size)
+            samples, log_rewards, indices = buffer.sample(buffer_state, key, alg_cfg.batch_size)
 
             # Get grads with the off-policy samples
-            grads, (_, log_pbs_over_pfs, log_rewards, losses) = loss_bwd_grad_fn(
-                key, model_state, model_state.params, samples, invtemp=invtemp
+            grads, (_, log_pbs_over_pfs, _, losses) = loss_bwd_grad_fn(
+                key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
             )
             model_state = model_state.apply_gradients(grads=grads)
 
@@ -169,7 +170,7 @@ def gfn_tb_trainer(cfg, target):
                 assert buffer is not None and buffer_state is not None
                 from eval import discrepancies
 
-                buffer_xs, _ = buffer.sample(buffer_state, key, cfg.eval_samples)
+                buffer_xs, _, _ = buffer.sample(buffer_state, key, cfg.eval_samples)
 
                 for d in cfg.discrepancies:
                     if logger.get(f"discrepancies/buffer_samples_{d}", None) is None:

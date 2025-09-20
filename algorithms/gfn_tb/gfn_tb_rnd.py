@@ -31,6 +31,7 @@ def per_sample_rnd_pinned_brownian(
     use_lp,
     prior_to_target=True,
     terminal_x: Array | None = None,
+    log_reward: Array | None = None,
 ):
     dim = aux_tuple
     dt = 1.0 / num_steps
@@ -138,7 +139,9 @@ def per_sample_rnd_pinned_brownian(
 
     fwd_log_probs, bwd_log_probs, trajectories = per_step_output
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
-    terminal_costs = -target.log_prob(terminal_x)
+    if log_reward is None:
+        log_reward = target.log_prob(terminal_x)
+    terminal_costs = -log_reward
 
     return (
         terminal_x,
@@ -147,6 +150,7 @@ def per_sample_rnd_pinned_brownian(
         stochastic_costs,
         terminal_costs,
         trajectories,
+        jnp.array(0.0),
     )
 
 
@@ -161,6 +165,7 @@ def per_sample_rnd_ou(
     use_lp,
     prior_to_target=True,
     terminal_x: Array | None = None,
+    log_reward: Array | None = None,
 ):
     raise NotImplementedError("OU reference process not implemented yet.")
 
@@ -176,6 +181,7 @@ def per_sample_rnd_ou_dds(
     use_lp,
     prior_to_target=True,
     terminal_x: Array | None = None,
+    log_reward: Array | None = None,
 ):
     init_std, init_sampler, init_log_prob, noise_scale = aux_tuple
     betas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
@@ -270,16 +276,10 @@ def per_sample_rnd_ou_dds(
 
     fwd_log_probs, bwd_log_probs, trajectories = per_step_output
     init_fwd_log_prob = init_log_prob(init_x)
-    init_bwd_log_prob = jnp.array(0.0)
-    if prior_to_target:
-        fwd_log_probs = jnp.concatenate([init_fwd_log_prob[None], fwd_log_probs])
-        bwd_log_probs = jnp.concatenate([init_bwd_log_prob[None], bwd_log_probs])
-    else:
-        fwd_log_probs = jnp.concatenate([fwd_log_probs, init_fwd_log_prob[None]])
-        bwd_log_probs = jnp.concatenate([bwd_log_probs, init_bwd_log_prob[None]])
-
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
-    terminal_costs = -target.log_prob(terminal_x)
+    if log_reward is None:
+        log_reward = target.log_prob(terminal_x)
+    terminal_costs = -log_reward
 
     return (
         terminal_x,
@@ -288,6 +288,7 @@ def per_sample_rnd_ou_dds(
         stochastic_costs,
         terminal_costs,
         trajectories,
+        init_fwd_log_prob,
     )
 
 
@@ -304,6 +305,7 @@ def rnd(
     use_lp,
     prior_to_target=True,
     terminal_xs: Array | None = None,
+    log_rewards: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
     per_sample_fn = {
@@ -319,9 +321,10 @@ def rnd(
         stochastic_costs,
         terminal_costs,
         trajectories,
+        init_fwd_log_probs,
     ) = jax.vmap(
         per_sample_fn,
-        in_axes=(0, None, None, None, None, None, None, None, None, 0),
+        in_axes=(0, None, None, None, None, None, None, None, None, 0, 0),
     )(
         seeds,
         model_state,
@@ -333,6 +336,7 @@ def rnd(
         use_lp,
         prior_to_target,
         terminal_xs,
+        log_rewards,
     )
     running_costs = fwd_log_probs - bwd_log_probs
 
@@ -342,7 +346,12 @@ def rnd(
 
     # trajectories = jnp.concatenate([trajectories, terminal_xs[:, None]], axis=1)
 
-    return terminal_xs, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs
+    return (
+        terminal_xs,
+        running_costs.sum(1) + init_fwd_log_probs,
+        stochastic_costs.sum(1),
+        terminal_costs,
+    )
 
 
 def loss_fn(
@@ -355,8 +364,7 @@ def loss_fn(
     huber_delta: float = 1e4,
     logr_clip: float = -1e5,
 ):
-    aux = rnd_partial(key, model_state, params)
-    terminal_xs, running_costs, _, terminal_costs = aux
+    terminal_xs, running_costs, _, terminal_costs = rnd_partial(key, model_state, params)
     log_rewards = jnp.where(
         -terminal_costs > logr_clip,
         -terminal_costs,

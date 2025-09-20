@@ -33,6 +33,7 @@ def per_sample_rnd_pinned_brownian(
     partial_energy,
     prior_to_target=True,
     terminal_x: Array | None = None,
+    log_reward: Array | None = None,
 ):
     dim = aux_tuple
     dt = 1.0 / num_steps
@@ -168,7 +169,9 @@ def per_sample_rnd_pinned_brownian(
 
     fwd_log_probs, bwd_log_probs, trajectories, log_fs = per_step_output
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
-    terminal_costs = -target.log_prob(terminal_x)
+    if log_reward is None:
+        log_reward = target.log_prob(terminal_x)
+    terminal_costs = -log_reward
 
     return (
         terminal_x,
@@ -194,6 +197,7 @@ def per_sample_rnd_ou(
     partial_energy,
     prior_to_target=True,
     terminal_x: Array | None = None,
+    log_reward: Array | None = None,
 ):
     raise NotImplementedError("OU reference process not implemented yet.")
 
@@ -210,6 +214,7 @@ def per_sample_rnd_ou_dds(
     partial_energy,
     prior_to_target=True,
     terminal_x: Array | None = None,
+    log_reward: Array | None = None,
 ):
     init_std, init_sampler, init_log_prob, noise_scale = aux_tuple
     betas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
@@ -319,7 +324,9 @@ def per_sample_rnd_ou_dds(
     fwd_log_probs, bwd_log_probs, trajectories, log_fs = per_step_output
     init_fwd_log_prob = init_log_prob(init_x)
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
-    terminal_costs = -target.log_prob(terminal_x)
+    if log_reward is None:
+        log_reward = target.log_prob(terminal_x)
+    terminal_costs = -log_reward
 
     return (
         terminal_x,
@@ -347,6 +354,7 @@ def rnd(
     partial_energy,
     prior_to_target=True,
     terminal_xs: Array | None = None,
+    log_rewards: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
     per_sample_fn = {
@@ -366,7 +374,7 @@ def rnd(
         init_fwd_log_probs,
     ) = jax.vmap(
         per_sample_fn,
-        in_axes=(0, None, None, None, None, None, None, None, None, None, 0),
+        in_axes=(0, None, None, None, None, None, None, None, None, None, 0, 0),
     )(
         seeds,
         model_state,
@@ -379,6 +387,7 @@ def rnd(
         partial_energy,
         prior_to_target,
         terminal_xs,
+        log_rewards,
     )
     running_costs = fwd_log_probs - bwd_log_probs
 
@@ -461,6 +470,85 @@ def loss_fn(
 
     log_pfs_over_pbs = log_pfs_over_pbs.at[:, 0].set(log_pfs_over_pbs[:, 0] + init_fwd_log_probs)
     return jnp.mean(subtb_losses.mean(-1)), (
+        trajectories,
+        jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
+        jax.lax.stop_gradient(-subtb_discrepancy),  # log(f(s')pb(s'->s)/f(s)pf(s->s'))
+        -terminal_costs,  # log_rewards
+        jax.lax.stop_gradient(subtb_losses),
+    )
+
+
+def loss_fn_tb_subtb(
+    key: RandomKey,
+    model_state: TrainState,
+    params: ModelParams,
+    rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
+    n_chunks: int,
+    invtemp: float = 1.0,
+    huber_delta: float = 1e5,
+    logr_clip: float = -1e5,
+):
+    (
+        _,
+        running_costs,
+        _,
+        terminal_costs,
+        log_pfs_over_pbs,
+        trajectories,
+        log_fs,
+        init_fwd_log_probs,
+    ) = rnd_partial(key, model_state, params)
+
+    bs, T = log_pfs_over_pbs.shape
+    assert T % n_chunks == 0
+    chunk_size = T // n_chunks
+
+    log_rewards = jnp.where(
+        -terminal_costs > logr_clip,
+        -terminal_costs,
+        logr_clip - jnp.log(logr_clip + terminal_costs),
+    )
+    log_ratio = running_costs - log_rewards * invtemp  # running_costs already contains initial pfs
+    logZ = params["params"]["logZ"]
+    tb_losses = log_ratio + logZ
+    # tb_losses = log_ratio - jnp.mean(log_ratio)
+    tb_losses = jnp.where(
+        jnp.abs(tb_losses) <= huber_delta,
+        jnp.square(tb_losses),
+        huber_delta * jnp.abs(tb_losses) - 0.5 * huber_delta**2,
+    )
+
+    log_fs = log_fs.at[:, 0].set(jax.lax.stop_gradient(logZ) + init_fwd_log_probs)
+    log_fs = log_fs.at[:, -1].set(log_rewards * invtemp)
+
+    # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]
+    # subtb_discrepancy1 = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
+    # The below is equivalent to the above lines but avoids numerical instability.
+    subtb_discrepancy1 = (
+        log_fs[:, :-1:chunk_size]
+        + jax.lax.stop_gradient(log_pfs_over_pbs.reshape(bs, n_chunks, -1).sum(-1))
+        - log_fs[:, chunk_size::chunk_size]
+    )
+
+    log_pfs_over_pbs_cumsum = jax.lax.stop_gradient(
+        jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
+    )
+    subtb_discrepancy2 = (
+        log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs[:, [-1]]
+    ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
+
+    # subtb_discrepancy = subtb_discrepancy1
+    # subtb_discrepancy = subtb_discrepancy2
+    subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
+
+    subtb_losses = jnp.where(
+        jnp.abs(subtb_discrepancy) <= huber_delta,
+        jnp.square(subtb_discrepancy),
+        huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
+    )
+
+    log_pfs_over_pbs = log_pfs_over_pbs.at[:, 0].set(log_pfs_over_pbs[:, 0] + init_fwd_log_probs)
+    return jnp.mean(tb_losses + 0.1 * subtb_losses.mean(-1)), (
         trajectories,
         jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
         jax.lax.stop_gradient(-subtb_discrepancy),  # log(f(s')pb(s'->s)/f(s)pf(s->s'))

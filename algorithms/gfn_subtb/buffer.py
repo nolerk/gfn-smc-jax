@@ -103,6 +103,7 @@ class IntermediateStateData(NamedTuple):
     """
 
     states: chex.Array
+    log_rewards: chex.Array
     priorities: chex.Array
 
 
@@ -153,7 +154,7 @@ class SampleFn(Protocol):
         buffer_state: IntermediateStateBufferState,
         key: chex.PRNGKey,
         batch_size: int,
-    ) -> Tuple[chex.Array, chex.Array]:
+    ) -> Tuple[chex.Array, chex.Array, chex.Array]:
         """
         Samples a batch from the buffer.
 
@@ -242,9 +243,14 @@ def build_intermediate_state_buffer(
 
         # Pre-allocate memory for the buffer
         buffer_states = jnp.zeros((max_length, dim), dtype=dtype, device=device)
+        buffer_log_rewards = jnp.zeros((max_length,), dtype=dtype, device=device)
         buffer_priorities = -jnp.inf * jnp.ones((max_length,), dtype=dtype, device=device)
 
-        data = IntermediateStateData(states=buffer_states, priorities=buffer_priorities)
+        data = IntermediateStateData(
+            states=buffer_states,
+            log_rewards=buffer_log_rewards,
+            priorities=buffer_priorities,
+        )
 
         # Create an initial empty state
         buffer_state = IntermediateStateBufferState(
@@ -276,8 +282,13 @@ def build_intermediate_state_buffer(
 
         # Update data arrays immutably
         new_states_array = buffer_state.data.states.at[indices].set(states)  # type: ignore
+        new_log_rewards_array = buffer_state.data.log_rewards.at[indices].set(log_rewards)  # type: ignore
         new_priorities_array = buffer_state.data.priorities.at[indices].set(priorities)  # type: ignore
-        data = IntermediateStateData(states=new_states_array, priorities=new_priorities_array)
+        data = IntermediateStateData(
+            states=new_states_array,
+            log_rewards=new_log_rewards_array,
+            priorities=new_priorities_array,
+        )
 
         # Update metadata
         new_index = buffer_state.current_index + batch_size
@@ -294,7 +305,7 @@ def build_intermediate_state_buffer(
 
     def sample(
         buffer_state: IntermediateStateBufferState, key: chex.PRNGKey, batch_size: int
-    ) -> Tuple[chex.Array, chex.Array]:
+    ) -> Tuple[chex.Array, chex.Array, chex.Array]:
         """Samples a batch from the buffer in proportion to priorities."""
         # Determine the number of valid items currently in the buffer
         buffer_size = jax.lax.select(buffer_state.is_full, max_length, buffer_state.current_index)
@@ -311,7 +322,8 @@ def build_intermediate_state_buffer(
 
         # Gather the data using the sampled indices
         sampled_states = buffer_state.data.states[indices]  # type: ignore
-        return sampled_states, indices
+        sampled_log_rewards = buffer_state.data.log_rewards[indices]  # type: ignore
+        return sampled_states, sampled_log_rewards, indices
 
     def update_priority(
         buffer_state: IntermediateStateBufferState,

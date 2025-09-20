@@ -3,9 +3,9 @@ name: gfn_subtb
 step_size: ${target.gfn_subtb.step_size}
 batch_size: ${target.all.batch_size}
 iters: 40000
-num_steps: 50
+num_steps: 128
 grad_clip: 1.
-n_chunks: 5
+n_chunks: 10
 partial_energy: True
 logflow_step_size: ${target.gfn_subtb.logflow_step_size}
 reference_process: pinned_brownian  # ou or pinned_brownian
@@ -15,10 +15,11 @@ noise_scale: 6.  # for ou_dds
 init_logZ: ${target.gfn_tb.init_logZ}  # for ou or ou_dds
 logZ_step_size: ${target.gfn_tb.logZ_step_size}  # for ou or ou_dds
 init_invtemp: 1.
+loss_type: subtb  # tb_subtb or subtb
 
 # Learning rate scheduler
 lr_schedule:
-  type: constant  # multistep | cosine | constant
+  type: multistep  # multistep | cosine | constant
   milestones: [20000, 30000]  # iteration indices at which to decay
   gamma: 0.3  # multiply LR by gamma at each milestone
 

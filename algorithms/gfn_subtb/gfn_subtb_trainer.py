@@ -13,7 +13,7 @@ import wandb
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
 from algorithms.gfn_subtb.buffer import build_intermediate_state_buffer
-from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn, rnd
+from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn, loss_fn_tb_subtb, rnd
 from algorithms.gfn_subtb.visualise import visualise_intermediate_distribution
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
@@ -76,7 +76,10 @@ def gfn_subtb_trainer(cfg, target):
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
     )
-    loss_fn_base = partial(loss_fn, n_chunks=n_chunks)
+    loss_fn_base = partial(
+        loss_fn_tb_subtb if alg_cfg.loss_type == "tb_subtb" else loss_fn,
+        n_chunks=n_chunks,
+    )
 
     # Define the function to be JIT-ed for FWD pass
     @jax.jit
@@ -95,13 +98,14 @@ def gfn_subtb_trainer(cfg, target):
     # Define the function to be JIT-ed for BWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_bwd_grad_fn(key, model_state, params, terminal_xs, invtemp=1.0):
+    def loss_bwd_grad_fn(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
             batch_size=batch_size,
             prior_to_target=False,
             terminal_xs=terminal_xs,
+            log_rewards=log_rewards,
         )
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
@@ -172,7 +176,7 @@ def gfn_subtb_trainer(cfg, target):
 
             # Sample terminal states from buffer
             key, key_gen = jax.random.split(key_gen)
-            samples, indices = buffer.sample(buffer_state, key, batch_size)
+            samples, log_rewards, indices = buffer.sample(buffer_state, key, batch_size)
 
             # Get grads with the off-policy samples
             grads, (
@@ -181,7 +185,9 @@ def gfn_subtb_trainer(cfg, target):
                 _,  # subtb_discrepancy
                 log_rewards,
                 subtb_losses,
-            ) = loss_bwd_grad_fn(key, model_state, model_state.params, samples, invtemp=invtemp)
+            ) = loss_bwd_grad_fn(
+                key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
+            )
             model_state = model_state.apply_gradients(grads=grads)
 
             # Update scores in buffer if needed
@@ -240,7 +246,7 @@ def gfn_subtb_trainer(cfg, target):
                 assert buffer is not None and buffer_state is not None
                 from eval import discrepancies
 
-                buffer_xs, _ = buffer.sample(buffer_state, key, cfg.eval_samples)
+                buffer_xs, _, _ = buffer.sample(buffer_state, key, cfg.eval_samples)
 
                 for d in cfg.discrepancies:
                     if logger.get(f"discrepancies/buffer_samples_{d}", None) is None:
