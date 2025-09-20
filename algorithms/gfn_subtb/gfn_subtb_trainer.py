@@ -9,7 +9,6 @@ import distrax
 import jax
 import jax.numpy as jnp
 import wandb
-import optax
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
@@ -66,10 +65,6 @@ def gfn_subtb_trainer(cfg, target):
     # Initialize the model
     key, key_gen = jax.random.split(key_gen)
     model_state = init_model(key, dim, alg_cfg)
-    # Initialize target params for a target network (EMA)
-    target_params = None
-    if alg_cfg.target_network.use:
-        target_params = model_state.params
 
     rnd_partial_base = partial(
         rnd,
@@ -81,7 +76,7 @@ def gfn_subtb_trainer(cfg, target):
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
     )
-    loss_fn_base = partial(loss_fn, n_chunks=n_chunks, target_params=target_params)
+    loss_fn_base = partial(loss_fn, n_chunks=n_chunks)
 
     # Define the function to be JIT-ed for FWD pass
     @jax.jit
@@ -112,7 +107,7 @@ def gfn_subtb_trainer(cfg, target):
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
-        partial(rnd_partial_base, target_params=None, batch_size=cfg.eval_samples),
+        partial(rnd_partial_base, batch_size=cfg.eval_samples),
         target,
         target_xs,
         cfg,
@@ -198,14 +193,6 @@ def gfn_subtb_trainer(cfg, target):
                     log_rewards,
                     subtb_losses.sum(-1),
                 )
-
-        if target_params is not None:
-            target_params = optax.periodic_update(
-                model_state.params,
-                target_params,
-                model_state.step,
-                alg_cfg.target_network.update_every,
-            )
 
         if cfg.use_wandb:
             wandb.log(

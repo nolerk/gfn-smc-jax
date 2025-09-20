@@ -22,10 +22,6 @@ lr_schedule:
   milestones: [20000, 30000]  # iteration indices at which to decay
   gamma: 0.3  # multiply LR by gamma at each milestone
 
-target_network:
-  use: False
-  update_every: 10
-
 defaults:
   - model: pisgrad_net
   - noise_schedule: const

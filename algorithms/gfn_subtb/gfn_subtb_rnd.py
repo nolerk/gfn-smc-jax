@@ -25,7 +25,6 @@ def per_sample_rnd_pinned_brownian(
     seed,
     model_state,
     params: ModelParams,
-    target_params: ModelParams | None,
     aux_tuple,
     target,
     num_steps,
@@ -53,7 +52,6 @@ def per_sample_rnd_pinned_brownian(
         langevin = jnp.zeros(dim)
         if use_lp:
             log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-            langevin = jax.lax.stop_gradient(langevin)
             # langevin = langevin * t  # ?
         elif partial_energy:
             log_prob = target.log_prob(s)
@@ -70,13 +68,6 @@ def per_sample_rnd_pinned_brownian(
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
-
-        log_f_tgt = jnp.array(0.0)
-        if target_params is not None:
-            _, log_f_tgt = jax.lax.stop_gradient(
-                model_state.apply_fn(target_params, s, t * jnp.ones(1), langevin)
-            )
-            log_f_tgt = log_f_tgt + log_f_bias
 
         # Euler-Maruyama integration of the SDE
         fwd_mean = s + model_output * dt
@@ -98,7 +89,7 @@ def per_sample_rnd_pinned_brownian(
 
         # Compute importance weight increment
         next_state = (s_next, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f, log_f_tgt)
+        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f)
         return next_state, per_step_output
 
     def simulate_target_to_prior(state, per_step_input):
@@ -134,7 +125,6 @@ def per_sample_rnd_pinned_brownian(
         langevin = jnp.zeros(dim)
         if use_lp:
             log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-            langevin = jax.lax.stop_gradient(langevin)
             # langevin = langevin * t  # ?
         elif partial_energy:
             log_prob = target.log_prob(s)
@@ -152,20 +142,13 @@ def per_sample_rnd_pinned_brownian(
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
 
-        log_f_tgt = jnp.array(0.0)
-        if target_params is not None:
-            _, log_f_tgt = jax.lax.stop_gradient(
-                model_state.apply_fn(target_params, s, t * jnp.ones(1), langevin)
-            )
-            log_f_tgt = log_f_tgt + log_f_bias
-
         fwd_mean = s + model_output * dt
         fwd_scale = sigma_t * jnp.sqrt(dt)
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
 
         # Compute importance weight increment
         next_state = (s, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f, log_f_tgt)
+        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f)
         return next_state, per_step_output
 
     key, key_gen = jax.random.split(seed)
@@ -183,7 +166,7 @@ def per_sample_rnd_pinned_brownian(
             simulate_target_to_prior, aux, jnp.arange(num_steps)[::-1]
         )
 
-    fwd_log_probs, bwd_log_probs, trajectories, log_fs, log_fs_tgt = per_step_output
+    fwd_log_probs, bwd_log_probs, trajectories, log_fs = per_step_output
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
     terminal_costs = -target.log_prob(terminal_x)
 
@@ -195,7 +178,6 @@ def per_sample_rnd_pinned_brownian(
         terminal_costs,
         trajectories,
         log_fs,
-        log_fs_tgt if target_params is not None else None,
         jnp.array(0.0),
     )
 
@@ -220,7 +202,6 @@ def per_sample_rnd_ou_dds(
     seed,
     model_state,
     params: ModelParams,
-    target_params: ModelParams | None,
     aux_tuple,
     target,
     num_steps,
@@ -256,13 +237,6 @@ def per_sample_rnd_ou_dds(
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
 
-        log_f_tgt = jnp.array(0.0)
-        if target_params is not None:
-            _, log_f_tgt = jax.lax.stop_gradient(
-                model_state.apply_fn(target_params, s, t * jnp.ones(1), langevin)
-            )
-            log_f_tgt = log_f_tgt + log_f_bias
-
         # Exponential integration of the SDE
         sqrt_at = jnp.clip(jnp.sqrt(betas[step - 1]), 0, 1)
         sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
@@ -281,7 +255,7 @@ def per_sample_rnd_ou_dds(
 
         # Return next state and per-step output
         next_state = (s_next, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f, log_f_tgt)
+        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f)
         return next_state, per_step_output
 
     def simulate_target_to_prior(state, per_step_input):
@@ -316,22 +290,13 @@ def per_sample_rnd_ou_dds(
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
 
-        log_f_tgt = jnp.array(0.0)
-        if target_params is not None:
-            _, log_f_tgt = jax.lax.stop_gradient(
-                model_state.apply_fn(target_params, s, t * jnp.ones(1), langevin)
-            )
-            log_f_tgt = log_f_tgt + log_f_bias
-
-        # sqrt_at = jnp.clip(jnp.sqrt(betas[step - 1]), 0, 1)
-        # sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at_next * s + sqrt_at_next**2 * model_output
         fwd_scale = sqrt_at_next * init_std
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
 
         # Return next state and per-step output
         next_state = (s, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f, log_f_tgt)
+        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f)
         return next_state, per_step_output
 
     key, key_gen = jax.random.split(seed)
@@ -351,7 +316,7 @@ def per_sample_rnd_ou_dds(
         )
         init_x, _ = aux
 
-    fwd_log_probs, bwd_log_probs, trajectories, log_fs, log_fs_tgt = per_step_output
+    fwd_log_probs, bwd_log_probs, trajectories, log_fs = per_step_output
     init_fwd_log_prob = init_log_prob(init_x)
     stochastic_costs = jnp.zeros_like(fwd_log_probs)
     terminal_costs = -target.log_prob(terminal_x)
@@ -364,7 +329,6 @@ def per_sample_rnd_ou_dds(
         terminal_costs,
         trajectories,
         log_fs,
-        log_fs_tgt if target_params is not None else None,
         init_fwd_log_prob,
     )
 
@@ -373,7 +337,6 @@ def rnd(
     key,
     model_state,
     params,
-    target_params: ModelParams | None,
     reference_process: Literal["pinned_brownian", "ou", "ou_dds"],
     batch_size,
     aux_tuple,
@@ -400,16 +363,14 @@ def rnd(
         terminal_costs,
         trajectories,
         log_fs,
-        log_fs_tgt,
         init_fwd_log_probs,
     ) = jax.vmap(
         per_sample_fn,
-        in_axes=(0, None, None, None, None, None, None, None, None, None, None, 0),
+        in_axes=(0, None, None, None, None, None, None, None, None, None, 0),
     )(
         seeds,
         model_state,
         params,
-        target_params,
         aux_tuple,
         target,
         num_steps,
@@ -425,13 +386,9 @@ def rnd(
         running_costs = running_costs[:, ::-1]
         trajectories = trajectories[:, ::-1]
         log_fs = log_fs[:, ::-1]
-        if target_params is not None:
-            log_fs_tgt = log_fs_tgt[:, ::-1]
 
     trajectories = jnp.concatenate([trajectories, terminal_xs[:, None]], axis=1)
     log_fs = jnp.concatenate([log_fs, -terminal_costs[:, None]], axis=1)
-    if target_params is not None:
-        log_fs_tgt = jnp.concatenate([log_fs_tgt, -terminal_costs[:, None]], axis=1)
 
     return (
         terminal_xs,
@@ -441,7 +398,6 @@ def rnd(
         running_costs,  # log_pfs - log_pbs
         trajectories,
         log_fs,
-        log_fs_tgt,
         init_fwd_log_probs,
     )
 
@@ -450,16 +406,12 @@ def loss_fn(
     key: RandomKey,
     model_state: TrainState,
     params: ModelParams,
-    target_params: ModelParams | None,
-    rnd_partial: Callable[
-        [RandomKey, TrainState, ModelParams, ModelParams | None], tuple[Array, Array, Array, Array]
-    ],
+    rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
     n_chunks: int,
     invtemp: float = 1.0,
-    huber_delta: float = 1e3,
+    huber_delta: float = 1e5,
     logr_clip: float = -1e5,
 ):
-    aux = rnd_partial(key, model_state, params, target_params)
     (
         _,
         _,
@@ -468,9 +420,8 @@ def loss_fn(
         log_pfs_over_pbs,
         trajectories,
         log_fs,
-        log_fs_tgt,
         init_fwd_log_probs,
-    ) = aux
+    ) = rnd_partial(key, model_state, params)
 
     bs, T = log_pfs_over_pbs.shape
     assert T % n_chunks == 0
@@ -483,23 +434,19 @@ def loss_fn(
     )
     log_fs = log_fs.at[:, 0].set(params["params"]["logZ"] + init_fwd_log_probs)
     log_fs = log_fs.at[:, -1].set(log_rewards * invtemp)
-    if target_params is not None:
-        log_fs_tgt = log_fs_tgt.at[:, -1].set(log_rewards * invtemp)
-    else:
-        log_fs_tgt = log_fs
 
-    # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs_tgt[:, 1:]
+    # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]
     # subtb_discrepancy1 = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
     # The below is equivalent to the above lines but avoids numerical instability.
     subtb_discrepancy1 = (
         log_fs[:, :-1:chunk_size]
         + log_pfs_over_pbs.reshape(bs, n_chunks, -1).sum(-1)
-        - log_fs_tgt[:, chunk_size::chunk_size]
+        - log_fs[:, chunk_size::chunk_size]
     )
 
     log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
     subtb_discrepancy2 = (
-        log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs_tgt[:, [-1]]
+        log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs[:, [-1]]
     ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
 
     # subtb_discrepancy = subtb_discrepancy1
@@ -512,6 +459,7 @@ def loss_fn(
         huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
     )
 
+    log_pfs_over_pbs = log_pfs_over_pbs.at[:, 0].set(log_pfs_over_pbs[:, 0] + init_fwd_log_probs)
     return jnp.mean(subtb_losses.mean(-1)), (
         trajectories,
         jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
