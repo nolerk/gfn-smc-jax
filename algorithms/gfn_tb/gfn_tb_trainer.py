@@ -142,6 +142,7 @@ def gfn_tb_trainer(cfg, target):
             samples, log_rewards, indices = buffer.sample(buffer_state, key, alg_cfg.batch_size)
 
             # Get grads with the off-policy samples
+            key, key_gen = jax.random.split(key_gen)
             grads, (_, log_pbs_over_pfs, _, losses) = loss_bwd_grad_fn(
                 key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
             )

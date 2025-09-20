@@ -110,11 +110,7 @@ class PISGRADNet(nn.Module):
         self.timestep_coeff = jnp.linspace(start=0.1, stop=100, num=self.num_hid)[None]
 
         self.time_coder_state = nn.Sequential(
-            [
-                nn.Dense(self.num_hid),
-                nn.gelu,
-                nn.Dense(self.num_hid),
-            ]
+            [nn.Dense(self.num_hid), nn.gelu, nn.Dense(self.num_hid)]
         )
 
         self.time_coder_grad = None
@@ -137,8 +133,8 @@ class PISGRADNet(nn.Module):
             + [
                 nn.Dense(
                     self.dim,
-                    kernel_init=nn.initializers.constant(self.weight_init),
-                    bias_init=nn.initializers.constant(self.bias_init),
+                    kernel_init=nn.initializers.constant(1e-8),
+                    bias_init=nn.initializers.zeros_init(),
                 )
             ]
         )
@@ -160,7 +156,7 @@ class PISGRADNet(nn.Module):
                 + [
                     nn.Dense(
                         1,
-                        kernel_init=nn.initializers.zeros_init(),
+                        kernel_init=nn.initializers.constant(1e-8),
                         bias_init=nn.initializers.zeros_init(),
                     )
                 ]
@@ -180,7 +176,6 @@ class PISGRADNet(nn.Module):
         time_array_emb = self.get_fourier_features(time_array)
         if len(input_array.shape) == 1:
             time_array_emb = time_array_emb[0]
-
         t_net1 = self.time_coder_state(time_array_emb)
         extended_input = jnp.concatenate((input_array, t_net1), axis=-1)
         out_state = self.state_time_net(extended_input)
@@ -204,7 +199,7 @@ class PISGRADNet(nn.Module):
                 flow_t_net1 = self.flow_time_coder_state(flow_time_array_emb)
                 flow_extended_input = jnp.concatenate((input_array, flow_t_net1), axis=-1)
             else:
-                flow_extended_input = input_array
+                flow_extended_input = extended_input
             log_flow = self.flow_state_time_net(flow_extended_input).squeeze(-1)
 
         return out_state, log_flow

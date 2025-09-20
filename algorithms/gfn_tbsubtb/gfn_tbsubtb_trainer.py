@@ -1,6 +1,5 @@
 """
-Code for Sub-Trajectory Balance (SubTB) training (Note: SubTB generalizes DB and TB).
-For further details see: https://arxiv.org/abs/2209.12782 and https://arxiv.org/abs/2501.06148
+Code for alternate training of Trajectory Balance (TB) and Sub-Trajectory Balance (SubTB).
 """
 
 from functools import partial
@@ -13,17 +12,18 @@ import wandb
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
 from algorithms.gfn_subtb.buffer import build_intermediate_state_buffer
-from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn, rnd
+from algorithms.gfn_subtb.gfn_subtb_rnd import rnd
 from algorithms.gfn_subtb.visualise import (
     visualise_intermediate_distribution,
     visualise_true_intermediate_distribution,
 )
+from algorithms.gfn_tbsubtb.gfn_tbsubtb_rnd import loss_fn_joint, loss_fn_tb, loss_fn_subtb
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
 from utils.print_utils import print_results
 
 
-def gfn_subtb_trainer(cfg, target):
+def gfn_tbsubtb_trainer(cfg, target):
     key_gen = jax.random.PRNGKey(cfg.seed)
 
     dim = target.dim
@@ -79,18 +79,26 @@ def gfn_subtb_trainer(cfg, target):
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
     )
-    loss_fn_base = partial(loss_fn, n_chunks=n_chunks)
+    if alg_cfg.alternate:
+        loss_fn_base = partial(loss_fn_tb, loss_type=alg_cfg.loss_type)
+    else:
+        loss_fn_base = partial(
+            loss_fn_joint,
+            loss_type=alg_cfg.loss_type,
+            n_chunks=n_chunks,
+            subtb_weight=alg_cfg.subtb_weight,
+        )
 
     # Define the function to be JIT-ed for FWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_fwd_grad_fn(key, model_state, params, invtemp=1.0):
+    def loss_fwd_grad_fn_tb(key, model_state, params, invtemp=1.0):
         rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
     # Define the function to be JIT-ed for FWD pass without gradients
     @jax.jit
-    def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
+    def loss_fwd_nograd_fn_tb(key, model_state, params, invtemp=1.0):
         # prior_to_target=True, terminal_xs=None
         rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
@@ -98,7 +106,7 @@ def gfn_subtb_trainer(cfg, target):
     # Define the function to be JIT-ed for BWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
-    def loss_bwd_grad_fn(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
+    def loss_bwd_grad_fn_tb(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
@@ -108,6 +116,22 @@ def gfn_subtb_trainer(cfg, target):
             log_rewards=log_rewards,
         )
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
+
+    loss_bwd_grad_fn_subtb = lambda *args, **kwargs: None
+    if alg_cfg.alternate:
+        loss_fn_subtb_base = partial(loss_fn_subtb, n_chunks=n_chunks)
+
+        @jax.jit
+        @partial(jax.grad, argnums=2, has_aux=True)
+        def loss_bwd_grad_fn_subtb(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
+            rnd_p = partial(
+                rnd_partial_base,
+                batch_size=batch_size,
+                prior_to_target=False,
+                terminal_xs=terminal_xs,
+                log_rewards=log_rewards,
+            )
+            return loss_fn_subtb_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
@@ -145,16 +169,19 @@ def gfn_subtb_trainer(cfg, target):
         assert buffer is not None and buffer_state is not None
         for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
-            _, (trajectories, log_pbs_over_pfs, log_rewards, subtb_losses) = loss_fwd_nograd_fn(
-                key, model_state, model_state.params, invtemp=1.0
-            )
-
+            _, (
+                trajectories,
+                log_pbs_over_pfs,
+                log_rewards,
+                tb_losses,
+                subtb_losses,
+            ) = loss_fwd_nograd_fn_tb(key, model_state, model_state.params)
             buffer_state = buffer.add(
                 buffer_state,
                 trajectories[:, -1],
                 log_pbs_over_pfs.sum(-1),
                 log_rewards,
-                subtb_losses.sum(-1),
+                tb_losses,
             )
 
     ### Training phase
@@ -167,8 +194,8 @@ def gfn_subtb_trainer(cfg, target):
         if not use_buffer or it % (buffer_cfg.bwd_to_fwd_ratio + 1) == 0:
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
-            grads, (trajectories, log_pbs_over_pfs, log_rewards, subtb_losses) = loss_fwd_grad_fn(
-                key, model_state, model_state.params, invtemp=invtemp
+            grads, (trajectories, log_pbs_over_pfs, log_rewards, tb_losses, subtb_losses) = (
+                loss_fwd_grad_fn_tb(key, model_state, model_state.params, invtemp=invtemp)
             )
             model_state = model_state.apply_gradients(grads=grads)
 
@@ -180,7 +207,7 @@ def gfn_subtb_trainer(cfg, target):
                     trajectories[:, -1],
                     log_pbs_over_pfs.sum(-1),
                     log_rewards,
-                    subtb_losses.sum(-1),
+                    tb_losses,
                 )
 
         # Off-policy training with buffer samples
@@ -193,29 +220,51 @@ def gfn_subtb_trainer(cfg, target):
 
             # Get grads with the off-policy samples
             key, key_gen = jax.random.split(key_gen)
-            grads, (_, log_pbs_over_pfs, log_rewards, subtb_losses) = loss_bwd_grad_fn(
-                key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
+            grads, (trajectories, log_pbs_over_pfs, log_rewards, tb_losses, subtb_losses) = (
+                loss_bwd_grad_fn_tb(
+                    key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
+                )
             )
             model_state = model_state.apply_gradients(grads=grads)
 
             # Update scores in buffer if needed
             if buffer_cfg.update_score:
                 buffer_state = buffer.update_priority(
-                    buffer_state,
-                    indices,
-                    log_pbs_over_pfs.sum(-1),
-                    log_rewards,
-                    subtb_losses.sum(-1),
+                    buffer_state, indices, log_pbs_over_pfs, log_rewards, tb_losses
                 )
 
         if cfg.use_wandb:
             wandb.log(
                 {
-                    "loss": jnp.mean(subtb_losses.mean(-1)),
+                    "tb_loss": jnp.mean(tb_losses),
+                    "subtb_loss": jnp.mean(subtb_losses.mean(-1)),
                     "logZ_learned": model_state.params["params"]["logZ"],
                 },
                 step=it,
             )
+
+        if alg_cfg.alternate and it > 0 and it % alg_cfg.learn_flow_every == 0:
+            print(f"Learning flow at iteration {it}")
+            assert buffer is not None and buffer_state is not None
+
+            for _ in range(alg_cfg.learn_flow_iters):
+                key, key_gen = jax.random.split(key_gen)
+                samples, log_rewards, indices = buffer.sample(buffer_state, key, batch_size)
+
+                key, key_gen = jax.random.split(key_gen)
+                grads, (
+                    trajectories,
+                    log_pbs_over_pfs,
+                    log_rewards,
+                    _,
+                    subtb_losses,
+                ) = loss_bwd_grad_fn_subtb(
+                    key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
+                )
+                model_state = model_state.apply_gradients(grads=grads)
+
+            if cfg.use_wandb:
+                wandb.log({f"alt_subtb_loss": jnp.mean(subtb_losses.mean(-1))}, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)

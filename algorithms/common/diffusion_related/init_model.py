@@ -75,7 +75,7 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             param_labels = path_aware_map(
                 lambda path, _: "logZ_optim" if "logZ" in path else "network_optim", params
             )
-        elif alg_cfg.name == "gfn_subtb":
+        elif alg_cfg.name == "gfn_subtb" or alg_cfg.name == "gfn_tbsubtb":
             optimizers_map = {
                 "network_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size)),
                 "logflow_optim": optax.adam(
