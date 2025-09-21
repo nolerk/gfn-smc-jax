@@ -90,7 +90,7 @@ def per_sample_rnd_pinned_brownian(
 
         # Compute importance weight increment
         next_state = (s_next, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f)
+        per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
         return next_state, per_step_output
 
     def simulate_target_to_prior(state, per_step_input):
@@ -149,7 +149,7 @@ def per_sample_rnd_pinned_brownian(
 
         # Compute importance weight increment
         next_state = (s, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f)
+        per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
         return next_state, per_step_output
 
     key, key_gen = jax.random.split(key)
@@ -158,6 +158,7 @@ def per_sample_rnd_pinned_brownian(
         aux = (init_x, key)
         aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(num_steps))
         terminal_x, _ = aux
+        trajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
     else:
         if terminal_x is None:
             terminal_x = jnp.squeeze(target.sample(key, (1,)))
@@ -166,23 +167,19 @@ def per_sample_rnd_pinned_brownian(
         aux, per_step_output = jax.lax.scan(
             simulate_target_to_prior, aux, jnp.arange(num_steps)[::-1]
         )
+        trajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
+        trajectory = trajectory[::-1]
+        fwd_log_prob = fwd_log_prob[::-1]
+        bwd_log_prob = bwd_log_prob[::-1]
+        log_f = log_f[::-1]
 
-    fwd_log_probs, bwd_log_probs, trajectories, log_fs = per_step_output
-    stochastic_costs = jnp.zeros_like(fwd_log_probs)
     if log_reward is None:
         log_reward = target.log_prob(terminal_x)
-    terminal_costs = -log_reward
 
-    return (
-        terminal_x,
-        fwd_log_probs,
-        bwd_log_probs,
-        stochastic_costs,
-        terminal_costs,
-        trajectories,
-        log_fs,
-        jnp.array(0.0),
-    )
+    trajectory = jnp.concatenate([trajectory, terminal_x[None]], axis=0)
+    log_f = jnp.concatenate([log_f, log_reward[None]], axis=0)
+
+    return trajectory, fwd_log_prob, bwd_log_prob, log_f, log_reward, jnp.array(0.0)
 
 
 def per_sample_rnd_ou(
@@ -261,7 +258,7 @@ def per_sample_rnd_ou_dds(
 
         # Return next state and per-step output
         next_state = (s_next, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f)
+        per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
         return next_state, per_step_output
 
     def simulate_target_to_prior(state, per_step_input):
@@ -304,7 +301,7 @@ def per_sample_rnd_ou_dds(
 
         # Return next state and per-step output
         next_state = (s, key_gen)
-        per_step_output = (fwd_log_prob, bwd_log_prob, s, log_f)
+        per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
         return next_state, per_step_output
 
     key, key_gen = jax.random.split(key)
@@ -314,6 +311,7 @@ def per_sample_rnd_ou_dds(
         aux = (init_x, key)
         aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(num_steps))
         terminal_x, _ = aux
+        trajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
     else:
         if terminal_x is None:
             terminal_x = jnp.squeeze(target.sample(key, (1,)))
@@ -323,24 +321,20 @@ def per_sample_rnd_ou_dds(
             simulate_target_to_prior, aux, jnp.arange(num_steps)[::-1]
         )
         init_x, _ = aux
+        trajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
+        trajectory = trajectory[::-1]
+        fwd_log_prob = fwd_log_prob[::-1]
+        bwd_log_prob = bwd_log_prob[::-1]
+        log_f = log_f[::-1]
 
-    fwd_log_probs, bwd_log_probs, trajectories, log_fs = per_step_output
     init_fwd_log_prob = init_log_prob(init_x)
-    stochastic_costs = jnp.zeros_like(fwd_log_probs)
     if log_reward is None:
         log_reward = target.log_prob(terminal_x)
-    terminal_costs = -log_reward
 
-    return (
-        terminal_x,
-        fwd_log_probs,
-        bwd_log_probs,
-        stochastic_costs,
-        terminal_costs,
-        trajectories,
-        log_fs,
-        init_fwd_log_prob,
-    )
+    trajectory = jnp.concatenate([trajectory, terminal_x[None]], axis=0)
+    log_f = jnp.concatenate([log_f, log_reward[None]], axis=0)
+
+    return trajectory, fwd_log_prob, bwd_log_prob, log_f, log_reward, init_fwd_log_prob
 
 
 def rnd(
@@ -367,13 +361,11 @@ def rnd(
     }[reference_process]
 
     (
-        terminal_xs,
+        trajectories,
         fwd_log_probs,
         bwd_log_probs,
-        stochastic_costs,
-        terminal_costs,
-        trajectories,
         log_fs,
+        log_rewards,
         init_fwd_log_probs,
     ) = jax.vmap(
         per_sample_fn,
@@ -392,23 +384,15 @@ def rnd(
         terminal_xs,
         log_rewards,
     )
-    running_costs = fwd_log_probs - bwd_log_probs
 
-    if not prior_to_target:
-        running_costs = running_costs[:, ::-1]
-        trajectories = trajectories[:, ::-1]
-        log_fs = log_fs[:, ::-1]
-
-    trajectories = jnp.concatenate([trajectories, terminal_xs[:, None]], axis=1)
-    log_fs = jnp.concatenate([log_fs, -terminal_costs[:, None]], axis=1)
-
+    log_pfs_over_pbs = fwd_log_probs - bwd_log_probs
     return (
-        terminal_xs,
-        running_costs.sum(1) + init_fwd_log_probs,
-        stochastic_costs.sum(1),
-        terminal_costs,
-        running_costs,  # log_pfs - log_pbs
+        trajectories[:, -1],
+        log_pfs_over_pbs.sum(1) + init_fwd_log_probs,
+        jnp.zeros_like(log_rewards),
+        -log_rewards,
         trajectories,
+        log_pfs_over_pbs,  # log_pfs - log_pbs
         log_fs,
         init_fwd_log_probs,
     )
@@ -429,8 +413,8 @@ def loss_fn_tb(
         running_costs,
         _,
         terminal_costs,
-        log_pfs_over_pbs,
         trajectories,
+        log_pfs_over_pbs,
         _,
         _,
     ) = rnd_partial(key, model_state, params)
@@ -476,8 +460,8 @@ def loss_fn_subtb(
         _,
         _,
         terminal_costs,
-        log_pfs_over_pbs,
         trajectories,
+        log_pfs_over_pbs,
         log_fs,
         init_fwd_log_probs,
     ) = rnd_partial(key, model_state, params)
@@ -550,8 +534,8 @@ def loss_fn_joint(
         running_costs,
         _,
         terminal_costs,
-        log_pfs_over_pbs,
         trajectories,
+        log_pfs_over_pbs,
         log_fs,
         init_fwd_log_probs,
     ) = rnd_partial(key, model_state, params)
