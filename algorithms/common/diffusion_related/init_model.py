@@ -78,9 +78,12 @@ def init_model(key, dim, alg_cfg) -> TrainState:
         )
     elif "gfn" in alg_cfg.name:
         optimizers_map = {
-            "network_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size)),
-            "logflow_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.logflow_step_size)),
+            "network_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size))
         }
+        if alg_cfg.name == "gfn_subtb":
+            optimizers_map["logflow_optim"] = optax.adam(
+                learning_rate=build_lr_schedule(alg_cfg.logflow_step_size)
+            )
         if (alg_cfg.name == "gfn_tb") or (alg_cfg.reference_process in ["ou", "ou_dds"]):
             additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
             params["params"] = {**params["params"], **additional_params}
