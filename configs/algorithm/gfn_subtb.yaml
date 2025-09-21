@@ -35,6 +35,7 @@ model:
   share_embeddings: False
   use_lp: True
   num_hid: 64
+  flow_num_hid: 256
   weight_init: 1e-8  # Initialization of the last layers' weights of the time-dependent network
   bias_init: 0.1  # Initialization of the last layers' bias of the time-dependent network
 

@@ -12,15 +12,13 @@ import numpy as np
 def plot_contours_2D(
     log_prob_func,
     dim: int,
-    ax: Optional[plt.Axes] = None,
+    ax: plt.Axes,
     marginal_dims: Tuple[int, int] = (0, 1),
     bounds: tuple[float, float] = (-3, 3),
     levels: int = 20,
     n_points: int = 200,
 ):
     """Plot the contours of a 2D log prob function."""
-    if ax is None:
-        fig, ax = plt.subplots(1)
     x_points_dim1 = np.linspace(bounds[0], bounds[1], n_points)
     x_points_dim2 = np.linspace(bounds[0], bounds[1], n_points)
     x_points = np.array(list(itertools.product(x_points_dim1, x_points_dim2)))
@@ -41,15 +39,13 @@ def plot_contours_2D(
 
 def plot_marginal_pair(
     samples: chex.Array,
-    ax: Optional[plt.Axes] = None,
+    ax: plt.Axes,
     marginal_dims: Tuple[int, int] = (0, 1),
     bounds: Tuple[float, float] = (-5, 5),
     alpha: float = 0.5,
     max_points: int = 500,
 ):
     """Plot samples from marginal of distribution for a given pair of dimensions."""
-    if not ax:
-        fig, ax = plt.subplots(1)
     samples = jnp.clip(samples, bounds[0], bounds[1])
     ax.scatter(
         samples[:max_points, marginal_dims[0]],

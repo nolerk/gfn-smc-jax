@@ -103,26 +103,29 @@ class GMM40(Target):
         log_prob_fn: Callable[[chex.Array], chex.Array] | None = None,
     ) -> dict:
         plt.close()
-        fig = plt.figure(figsize=(6, 6))
-        ax = fig.add_subplot()
-        marginal_dims = (0, 1)
-        bounds = (-self._plot_bound, self._plot_bound)
-        log_prob_fn = log_prob_fn or self.log_prob
-        plot_contours_2D(
-            log_prob_fn, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=50
-        )
-        if samples is not None:
-            plot_marginal_pair(
-                samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
+        if self.dim == 2:
+            fig = plt.figure(figsize=(6, 6))
+            ax = fig.add_subplot()
+            marginal_dims = (0, 1)
+            bounds = (-self._plot_bound, self._plot_bound)
+            log_prob_fn = log_prob_fn or self.log_prob
+            plot_contours_2D(
+                log_prob_fn, self.dim, ax, marginal_dims=marginal_dims, bounds=bounds, levels=50
             )
-        plt.xticks([])
-        plt.yticks([])
+            if samples is not None:
+                plot_marginal_pair(
+                    samples[:, marginal_dims], ax, marginal_dims=marginal_dims, bounds=bounds
+                )
+            plt.xticks([])
+            plt.yticks([])
 
-        wb = {f"figures/{prefix + '_' if prefix else ''}vis": [wandb.Image(fig)]}
-        if show:
-            plt.show()
+            wb = {f"figures/{prefix + '_' if prefix else ''}vis": [wandb.Image(fig)]}
+            if show:
+                plt.show()
 
-        return wb
+            return wb
+        else:
+            return {}  # TODO: add visualisation for higher dimensions
 
 
 if __name__ == "__main__":

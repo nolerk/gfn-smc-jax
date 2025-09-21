@@ -102,6 +102,8 @@ class PISGRADNet(nn.Module):
     use_lp: bool = True
     learn_flow: bool = False  # For DB and SubTB
     share_embeddings: bool = False
+    flow_num_layers: int = 2
+    flow_num_hid: int = 64
 
     def setup(self):
         self.timestep_phase = self.param(
@@ -145,14 +147,20 @@ class PISGRADNet(nn.Module):
             self.flow_time_coder_state = None
             if not self.share_embeddings:
                 self.flow_timestep_phase = self.param(
-                    "flow_timestep_phase", nn.initializers.zeros_init(), (1, self.num_hid)
+                    "flow_timestep_phase", nn.initializers.zeros_init(), (1, self.flow_num_hid)
                 )
+                self.flow_timestep_coeff = jnp.linspace(start=0.1, stop=100, num=self.flow_num_hid)[
+                    None
+                ]
                 self.flow_time_coder_state = nn.Sequential(
-                    [nn.Dense(self.num_hid), nn.gelu, nn.Dense(self.num_hid)]
+                    [nn.Dense(self.flow_num_hid), nn.gelu, nn.Dense(self.flow_num_hid)]
                 )
 
             self.flow_state_time_net = nn.Sequential(
-                [nn.Sequential([nn.Dense(self.num_hid), nn.gelu]) for _ in range(self.num_layers)]
+                [
+                    nn.Sequential([nn.Dense(self.flow_num_hid), nn.gelu])
+                    for _ in range(self.flow_num_layers)
+                ]
                 + [
                     nn.Dense(
                         1,
@@ -168,8 +176,8 @@ class PISGRADNet(nn.Module):
         return jnp.concatenate([sin_embed_cond, cos_embed_cond], axis=-1)
 
     def get_flow_fourier_features(self, timesteps):
-        sin_embed_cond = jnp.sin((self.timestep_coeff * timesteps) + self.flow_timestep_phase)
-        cos_embed_cond = jnp.cos((self.timestep_coeff * timesteps) + self.flow_timestep_phase)
+        sin_embed_cond = jnp.sin((self.flow_timestep_coeff * timesteps) + self.flow_timestep_phase)
+        cos_embed_cond = jnp.cos((self.flow_timestep_coeff * timesteps) + self.flow_timestep_phase)
         return jnp.concatenate([sin_embed_cond, cos_embed_cond], axis=-1)
 
     def __call__(self, input_array, time_array, lgv_term):
