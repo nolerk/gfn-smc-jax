@@ -81,9 +81,7 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             "network_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size)),
             "logflow_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.logflow_step_size)),
         }
-        if (alg_cfg.name in ["gfn_tb", "gfn_tbsubtb"]) or (
-            alg_cfg.reference_process in ["ou", "ou_dds"]
-        ):
+        if (alg_cfg.name == "gfn_tb") or (alg_cfg.reference_process in ["ou", "ou_dds"]):
             additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
             params["params"] = {**params["params"], **additional_params}
             optimizers_map["logZ_optim"] = optax.adam(
@@ -92,7 +90,7 @@ def init_model(key, dim, alg_cfg) -> TrainState:
 
         param_labels = path_aware_map(pisgrad_net_label_map, params)
         partitioned_optimizer = optax.multi_transform(optimizers_map, param_labels)
-        if not (alg_cfg.name == "gfn_tbsubtb" and alg_cfg.alternate):
+        if alg_cfg.name == "gfn_tb" or ("alt" not in alg_cfg.loss_type):
             optimizer = optax.chain(
                 optax.zero_nans(),
                 (
@@ -102,7 +100,7 @@ def init_model(key, dim, alg_cfg) -> TrainState:
                 ),
                 partitioned_optimizer,
             )
-        else:  # gfn_tbsubtb and alternate
+        else:  # gfn_subtb and alternate (loss_type in ["tb_subtb_alt", "lv_subtb_alt"])
             # Construct boolean masks per-parameter for flow-only vs tb-only updates
             flow_mask = jax.tree_util.tree_map(lambda lbl: lbl == "logflow_optim", param_labels)
             policy_mask = jax.tree_util.tree_map(lambda lbl: lbl != "logflow_optim", param_labels)

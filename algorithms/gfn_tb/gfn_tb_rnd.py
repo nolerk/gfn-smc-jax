@@ -21,7 +21,7 @@ def log_prob_kernel(x, mean, scale):
 
 
 def per_sample_rnd_pinned_brownian(
-    seed,
+    key,
     model_state,
     params,
     aux_tuple,
@@ -122,7 +122,7 @@ def per_sample_rnd_pinned_brownian(
         per_step_output = (fwd_log_prob, bwd_log_prob, s)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(seed)
+    key, key_gen = jax.random.split(key)
     if prior_to_target:
         init_x = jnp.zeros(dim)
         aux = (init_x, key)
@@ -155,7 +155,7 @@ def per_sample_rnd_pinned_brownian(
 
 
 def per_sample_rnd_ou(
-    seed,
+    key,
     model_state,
     params,
     aux_tuple,
@@ -171,7 +171,7 @@ def per_sample_rnd_ou(
 
 
 def per_sample_rnd_ou_dds(
-    seed,
+    key,
     model_state,
     params,
     aux_tuple,
@@ -257,7 +257,7 @@ def per_sample_rnd_ou_dds(
         per_step_output = (fwd_log_prob, bwd_log_prob, s)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(seed)
+    key, key_gen = jax.random.split(key)
     if prior_to_target:
         init_x = jnp.clip(init_sampler(seed=key), -4 * init_std, 4 * init_std)
         key, key_gen = jax.random.split(key_gen)
@@ -307,7 +307,7 @@ def rnd(
     terminal_xs: Array | None = None,
     log_rewards: Array | None = None,
 ):
-    seeds = jax.random.split(key, num=batch_size)
+    keys = jax.random.split(key, num=batch_size)
     per_sample_fn = {
         "pinned_brownian": per_sample_rnd_pinned_brownian,
         "ou": per_sample_rnd_ou,
@@ -326,7 +326,7 @@ def rnd(
         per_sample_fn,
         in_axes=(0, None, None, None, None, None, None, None, None, 0, 0),
     )(
-        seeds,
+        keys,
         model_state,
         params,
         aux_tuple,

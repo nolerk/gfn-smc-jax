@@ -15,6 +15,10 @@ noise_scale: 6.  # for ou_dds
 init_logZ: ${target.gfn_subtb.init_logZ}  # for ou or ou_dds
 logZ_step_size: ${target.gfn_subtb.logZ_step_size}  # for ou or ou_dds
 init_invtemp: 1.
+loss_type: tb_subtb  # subtb, tb_subtb, tb_subtb_alt, lv_subtb, lv_subtb_alt
+subtb_weight: 1.0  # used if loss_type is in [tb_subtb, tb_subtb_alt, lv_subtb, lv_subtb_alt]
+learn_flow_every: 400  # used if loss_type is in [tb_subtb_alt, lv_subtb_alt]
+learn_flow_iters: 400  # used if loss_type is in [tb_subtb_alt, lv_subtb_alt]
 
 # Learning rate scheduler
 lr_schedule:

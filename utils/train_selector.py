@@ -104,10 +104,5 @@ def get_train_fn(alg_name):
 
         return gfn_subtb_trainer
 
-    elif alg_name == "gfn_tbsubtb":
-        from algorithms.gfn_tbsubtb.gfn_tbsubtb_trainer import gfn_tbsubtb_trainer
-
-        return gfn_tbsubtb_trainer
-
     else:
         raise ValueError(f"No algorithm named {alg_name}.")
