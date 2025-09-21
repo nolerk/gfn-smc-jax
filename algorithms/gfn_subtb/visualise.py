@@ -63,7 +63,7 @@ def visualise_intermediate_distribution(
     batch_size: int,
     reference_process: str,  # for flow bias
     noise_schedule: Callable[[float], float],  # for flow bias
-    initial_dist: distrax.Distribution,  # for flow bias
+    initial_dist: distrax.Distribution | None,  # for flow bias
     noise_scale: float,  # for flow bias
     target_log_prob_fn: Callable[[chex.Array], chex.Array],  # for flow bias
 ) -> dict:
@@ -91,6 +91,7 @@ def visualise_intermediate_distribution(
                 # TODO
                 raise NotImplementedError
             elif reference_process == "ou_dds":
+                assert initial_dist is not None
                 weight = 1 - lambda_ts[step]
                 ref_log_prob_fn: Callable[[chex.Array], chex.Array] = initial_dist.log_prob
             else:

@@ -29,11 +29,13 @@ def gfn_tb_trainer(cfg, target):
     # Define initial and target density
     if alg_cfg.reference_process == "pinned_brownian":  # Following PIS
         aux_tuple = (dim,)
+        initial_sampler = lambda seed, sample_shape: jnp.zeros(sample_shape, dim)
     elif alg_cfg.reference_process in ["ou", "ou_dds"]:  # DIS or DDS
         initial_dist = distrax.MultivariateNormalDiag(
             jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
         )
-        aux_tuple = (alg_cfg.init_std, initial_dist.sample, initial_dist.log_prob)
+        aux_tuple = (alg_cfg.init_std, initial_dist.log_prob)
+        initial_sampler = initial_dist.sample
         if alg_cfg.reference_process == "ou_dds":
             aux_tuple = (*aux_tuple, alg_cfg.noise_scale)  # DDS
     else:
@@ -65,6 +67,7 @@ def gfn_tb_trainer(cfg, target):
         num_steps=cfg.algorithm.num_steps,
         noise_schedule=cfg.algorithm.noise_schedule,
         use_lp=alg_cfg.model.use_lp,
+        initial_sampler=initial_sampler,
     )
     loss_fn_base = partial(loss_fn, loss_type=alg_cfg.loss_type)
 

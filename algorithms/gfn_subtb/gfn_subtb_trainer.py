@@ -42,11 +42,13 @@ def gfn_subtb_trainer(cfg, target):
     if reference_process == "pinned_brownian":  # Following PIS
         initial_dist = None  # actually, the initial distribution is Dirac delta at the origin
         aux_tuple = (dim,)
+        initial_sampler = lambda seed, sample_shape: jnp.zeros(sample_shape, dim)
     elif reference_process in ["ou", "ou_dds"]:  # DIS or DDS
         initial_dist = distrax.MultivariateNormalDiag(
             jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
         )
-        aux_tuple = (alg_cfg.init_std, initial_dist.sample, initial_dist.log_prob)
+        aux_tuple = (alg_cfg.init_std, initial_dist.log_prob)
+        initial_sampler = initial_dist.sample
         if reference_process == "ou_dds":
             aux_tuple = (*aux_tuple, alg_cfg.noise_scale)  # DDS
     else:
@@ -80,6 +82,7 @@ def gfn_subtb_trainer(cfg, target):
         noise_schedule=noise_schedule,
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
+        initial_sampler=initial_sampler,
     )
 
     if alternate:
