@@ -1,5 +1,6 @@
 from typing import Callable, Literal
 
+import distrax
 import jax
 import jax.numpy as jnp
 from flax.training.train_state import TrainState
@@ -33,7 +34,6 @@ def per_sample_rnd_pinned_brownian(
     use_lp,
     partial_energy,
     prior_to_target=True,
-    log_reward: Array | None = None,
 ):
     dim = aux_tuple
     dt = 1.0 / num_steps
@@ -166,10 +166,7 @@ def per_sample_rnd_pinned_brownian(
         )
 
     trajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
-    if log_reward is None:
-        log_reward = target.log_prob(terminal_x)
-
-    return terminal_x, trajectory, fwd_log_prob, bwd_log_prob, log_f, jnp.array(0.0), log_reward
+    return terminal_x, trajectory, fwd_log_prob, bwd_log_prob, log_f
 
 
 def per_sample_rnd_ou(
@@ -184,7 +181,6 @@ def per_sample_rnd_ou(
     use_lp,
     partial_energy,
     prior_to_target=True,
-    log_reward: Array | None = None,
 ):
     raise NotImplementedError("OU reference process not implemented yet.")
 
@@ -201,7 +197,6 @@ def per_sample_rnd_ou_dds(
     use_lp,
     partial_energy,
     prior_to_target=True,
-    log_reward: Array | None = None,
 ):
     init_std, init_log_prob, noise_scale = aux_tuple
     alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
@@ -309,11 +304,7 @@ def per_sample_rnd_ou_dds(
         init_x, _ = aux
 
     trajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
-    init_fwd_log_prob = init_log_prob(init_x)
-    if log_reward is None:
-        log_reward = target.log_prob(terminal_x)
-
-    return terminal_x, trajectory, fwd_log_prob, bwd_log_prob, log_f, init_fwd_log_prob, log_reward
+    return terminal_x, trajectory, fwd_log_prob, bwd_log_prob, log_f
 
 
 def rnd(
@@ -329,14 +320,18 @@ def rnd(
     use_lp,
     partial_energy,
     prior_to_target=True,
-    initial_sampler: Callable[[RandomKey, tuple[int, ...]], Array] | None = None,
+    initial_dist: distrax.Distribution | None = None,
     terminal_xs: Array | None = None,
     log_rewards: Array | None = None,
 ):
     if prior_to_target:
-        key, key_gen = jax.random.split(key_gen)
-        input_states = initial_sampler(seed=key, sample_shape=(batch_size,))
+        if initial_dist is None:  # pinned_brownian
+            input_states = jnp.zeros((batch_size, target.dim))
+        else:
+            key, key_gen = jax.random.split(key_gen)
+            input_states = initial_dist.sample(seed=key, sample_shape=(batch_size,))
     else:
+        assert terminal_xs is not None
         input_states = terminal_xs
 
     keys = jax.random.split(key_gen, num=batch_size)
@@ -345,17 +340,10 @@ def rnd(
         "ou": per_sample_rnd_ou,
         "ou_dds": per_sample_rnd_ou_dds,
     }[reference_process]
-    (
-        terminal_xs,
-        trajectories,
-        fwd_log_probs,
-        bwd_log_probs,
-        log_fs,
-        init_fwd_log_probs,
-        log_rewards,
-    ) = jax.vmap(
+
+    terminal_xs, trajectories, fwd_log_probs, bwd_log_probs, log_fs = jax.vmap(
         per_sample_fn,
-        in_axes=(0, None, None, 0, None, None, None, None, None, None, None, 0),
+        in_axes=(0, None, None, 0, None, None, None, None, None, None, None),
     )(
         keys,
         model_state,
@@ -368,7 +356,6 @@ def rnd(
         use_lp,
         partial_energy,
         prior_to_target,
-        log_rewards,
     )
 
     if not prior_to_target:
@@ -378,6 +365,14 @@ def rnd(
         log_fs = log_fs[:, ::-1]
 
     trajectories = jnp.concatenate([trajectories, terminal_xs[:, None]], axis=1)
+
+    if initial_dist is None:  # pinned_brownian
+        init_fwd_log_probs = jnp.zeros(batch_size)
+    else:
+        init_fwd_log_probs = initial_dist.log_prob(trajectories[:, 0])
+
+    if log_rewards is None:
+        log_rewards = target.log_prob(terminal_xs)
     log_fs = jnp.concatenate([log_fs, log_rewards[:, None]], axis=1)
 
     log_pfs_over_pbs = fwd_log_probs - bwd_log_probs

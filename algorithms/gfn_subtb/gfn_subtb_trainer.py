@@ -42,13 +42,11 @@ def gfn_subtb_trainer(cfg, target):
     if reference_process == "pinned_brownian":  # Following PIS
         initial_dist = None  # actually, the initial distribution is Dirac delta at the origin
         aux_tuple = (dim,)
-        initial_sampler = lambda seed, sample_shape: jnp.zeros(sample_shape, dim)
     elif reference_process in ["ou", "ou_dds"]:  # DIS or DDS
         initial_dist = distrax.MultivariateNormalDiag(
             jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
         )
         aux_tuple = (alg_cfg.init_std, initial_dist.log_prob)
-        initial_sampler = initial_dist.sample
         if reference_process == "ou_dds":
             aux_tuple = (*aux_tuple, alg_cfg.noise_scale)  # DDS
     else:
@@ -82,7 +80,7 @@ def gfn_subtb_trainer(cfg, target):
         noise_schedule=noise_schedule,
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
-        initial_sampler=initial_sampler,
+        initial_dist=initial_dist,
     )
 
     if alternate:
@@ -154,15 +152,16 @@ def gfn_subtb_trainer(cfg, target):
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
-        partial(rnd_partial_base, batch_size=cfg.eval_samples),
-        target,
-        target_xs,
-        cfg,
+        partial(rnd_partial_base, batch_size=cfg.eval_samples), target, target_xs, cfg
     )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
     ### Plot the True intermediate distributions
-    if cfg.use_wandb and getattr(target, "log_prob_t", None) is not None:
+    if (
+        cfg.use_wandb
+        and getattr(target, "log_prob_t", None) is not None
+        and reference_process == "ou_dds"  # TODO: support other reference processes
+    ):
         true_vis_dict = visualise_true_intermediate_distribution(
             target.visualise,
             [i * (num_steps // n_chunks) for i in range(n_chunks + 1)],
