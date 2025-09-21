@@ -104,5 +104,10 @@ def get_train_fn(alg_name):
 
         return gfn_subtb_trainer
 
+    elif alg_name == "gfn_subtb_smc":
+        from algorithms.gfn_subtb_smc.gfn_subtb_smc_trainer import gfn_subtb_smc_trainer
+
+        return gfn_subtb_smc_trainer
+
     else:
         raise ValueError(f"No algorithm named {alg_name}.")

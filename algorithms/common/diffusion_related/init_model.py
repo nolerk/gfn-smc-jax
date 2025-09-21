@@ -80,7 +80,7 @@ def init_model(key, dim, alg_cfg) -> TrainState:
         optimizers_map = {
             "network_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size))
         }
-        if alg_cfg.name == "gfn_subtb":
+        if alg_cfg.name == "gfn_subtb" or alg_cfg.name == "gfn_subtb_smc":
             optimizers_map["logflow_optim"] = optax.adam(
                 learning_rate=build_lr_schedule(alg_cfg.logflow_step_size)
             )

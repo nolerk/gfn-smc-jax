@@ -1,0 +1,65 @@
+# Generative Flow Networks (GFN) with Trajectory Balance (TB) loss
+name: gfn_subtb_smc
+step_size: ${target.gfn_subtb.step_size}
+batch_size: ${target.all.batch_size}
+iters: 40000
+num_steps: 128
+grad_clip: 1.
+n_chunks: 10
+partial_energy: True
+logflow_step_size: ${target.gfn_subtb.logflow_step_size}
+reference_process: ${target.gfn_subtb.reference_process}  # ou or pinned_brownian
+init_std: ${target.gfn_subtb.init_std}  # for ou
+max_diffusion: ${target.gfn_subtb.max_diffusion}  # for pinned_brownian or ou
+noise_scale: 6.  # for ou_dds
+init_logZ: ${target.gfn_subtb.init_logZ}  # for ou or ou_dds
+logZ_step_size: ${target.gfn_subtb.logZ_step_size}  # for ou or ou_dds
+init_invtemp: 1.
+loss_type: tb_subtb  # subtb, tb_subtb, tb_subtb_alt, lv_subtb, lv_subtb_alt
+subtb_weight: 1.0  # used if loss_type is in [tb_subtb, tb_subtb_alt, lv_subtb, lv_subtb_alt]
+learn_flow_every: 400  # used if loss_type is in [tb_subtb_alt, lv_subtb_alt]
+learn_flow_iters: 400  # used if loss_type is in [tb_subtb_alt, lv_subtb_alt]
+
+# Learning rate scheduler
+lr_schedule:
+  type: multistep  # multistep | cosine | constant
+  milestones: [20000, 30000]  # iteration indices at which to decay
+  gamma: 0.3  # multiply LR by gamma at each milestone
+
+defaults:
+  - model: pisgrad_net
+  - noise_schedule: const
+  - mcmc: hmc
+
+model:
+  learn_flow: True
+  share_embeddings: False
+  use_lp: True
+  num_hid: 64
+  flow_num_hid: 256
+  weight_init: 1e-8  # Initialization of the last layers' weights of the time-dependent network
+  bias_init: 0.1  # Initialization of the last layers' bias of the time-dependent network
+
+noise_schedule:
+  reverse: False
+
+buffer:
+  use: True
+  max_length_in_batches: 100
+  prioritize_by: "piw"  # none, reward, loss, uiw, piw
+  target_ess: 0.20
+  sampling_method: "systematic"  # multinomial, stratified, systematic, rank
+  rank_k: 0.01  # only used if sampling_method is rank
+  sample_with_replacement: True
+  prefill_steps: 10  # collect `prefill_steps` batches before starting training
+  bwd_to_fwd_ratio: 2  # number of bwd steps per fwd step
+  update_score: False
+
+smc:
+  use: True
+  resample_threshold: 0.3
+  target_ess: 0.20
+  type: systematic
+
+mcmc:
+  use: False
