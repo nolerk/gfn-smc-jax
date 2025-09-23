@@ -133,50 +133,44 @@ def per_sample_subtraj_rnd_ou_dds(
         return next_state, per_step_output
 
     key, key_gen = jax.random.split(key)
-    start_step, traj_length = timestep_tup
+    start_step, subtraj_length = timestep_tup
+    end_step = start_step + subtraj_length
     if prior_to_target:
         start_state = input_state
         aux = (start_state, key)
         aux, per_step_output = jax.lax.scan(
-            simulate_prior_to_target, aux, start_step + jnp.arange(traj_length)
+            simulate_prior_to_target, aux, start_step + jnp.arange(subtraj_length)
         )
         end_state, _ = aux
     else:
         end_state = input_state
         aux = (end_state, key)
         aux, per_step_output = jax.lax.scan(
-            simulate_target_to_prior, aux, (start_step + jnp.arange(traj_length))[::-1]
+            simulate_target_to_prior, aux, (start_step + jnp.arange(subtraj_length))[::-1]
         )
         start_state, _ = aux
 
     subtrajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
-    return end_state, subtrajectory, fwd_log_prob, bwd_log_prob, log_f
 
+    def get_end_state_log_f(_: None):
+        _, _log_f = model_state.apply_fn(
+            params, end_state, (end_step / num_steps) * jnp.ones(1), jnp.zeros(end_state.shape[0])
+        )  # langevin doesn't affect the _log_f
+        if partial_energy:
+            weight = 1 - lambda_ts[end_step]
+            _log_f = _log_f + get_flow_bias(
+                weight, init_log_prob(end_state), target.log_prob(end_state)
+            )
+        return _log_f
 
-def get_end_state_log_f(
-    model_state: TrainState,
-    params: ModelParams,
-    end_state: Array,
-    aux_tuple: tuple,
-    target: Target,
-    num_steps: int,
-    end_step: int,
-    noise_schedule: Callable[[int], float],  # Not used here
-    partial_energy: bool,
-):
-    init_std, init_log_prob, noise_scale = aux_tuple
-    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
-    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
+    end_state_log_f = jax.lax.cond(
+        jnp.equal(start_step + subtraj_length, num_steps),
+        lambda _: target.log_prob(end_state),
+        lambda _: get_end_state_log_f(_),
+        operand=None,
+    )
 
-    _, end_state_log_f = model_state.apply_fn(
-        params, end_state, (end_step / num_steps) * jnp.ones(1), jnp.zeros(end_state.shape[0])
-    )  # langevin doesn't affect the log_f
-    if partial_energy:
-        weight = 1 - lambda_ts[end_step]
-        end_state_log_f = end_state_log_f + get_flow_bias(
-            weight, init_log_prob(end_state), target.log_prob(end_state)
-        )
-    return end_state_log_f
+    return end_state, subtrajectory, fwd_log_prob, bwd_log_prob, log_f, end_state_log_f
 
 
 def resampling(
@@ -242,7 +236,14 @@ def batch_simulate_subtraj_fwd(
             "ou_dds": per_sample_subtraj_rnd_ou_dds,
         }[reference_process]
 
-        next_states, subtrajectories, fwd_log_probs, bwd_log_probs, log_fs = jax.vmap(
+        (
+            next_states,
+            subtrajectories,
+            fwd_log_probs,
+            bwd_log_probs,
+            log_fs,
+            end_state_log_fs,
+        ) = jax.vmap(
             per_sample_fn,
             in_axes=(0, None, None, 0, None, None, None, None, None, None, None, None),
         )(
@@ -258,34 +259,6 @@ def batch_simulate_subtraj_fwd(
             use_lp,
             partial_energy,
             True,  # prior_to_target
-        )
-
-        def _compute_last_step(_):
-            end_state_log_fs = target.log_prob(next_states)
-            return end_state_log_fs
-
-        def _compute_not_last_step(_):
-            end_state_log_fs = jax.vmap(
-                get_end_state_log_f,
-                in_axes=(None, None, 0, None, None, None, None, None, None),
-            )(
-                model_state,
-                params,
-                next_states,
-                aux_tuple,
-                target,
-                num_steps,
-                start_step + subtraj_length,
-                noise_schedule,
-                partial_energy,
-            )
-            return end_state_log_fs
-
-        end_state_log_fs = jax.lax.cond(
-            jnp.equal(start_step + subtraj_length, num_steps),
-            _compute_last_step,
-            _compute_not_last_step,
-            next_states,
         )
 
         next_log_iws = log_iws + (
