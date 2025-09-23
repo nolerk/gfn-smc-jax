@@ -181,10 +181,13 @@ def resampling(
     target_ess: float,
 ):
     tempered_log_iws, temp = binary_search_smoothing_jit(log_iws, target_ess)
-    indices = sampling_func(key, tempered_log_iws, log_iws.shape[0], replacement=True)
-    resample_states = states[indices]
-    resample_log_iws = log_iws[indices] * (1 - 1 / temp)
-    return resample_states, resample_log_iws
+    indices = sampling_func(
+        key, jax.nn.softmax(tempered_log_iws, axis=0), log_iws.shape[0], replacement=True
+    )
+    resampled_states = states[indices]
+    resampled_log_iws = log_iws[indices] * (1 - 1 / temp)
+
+    return resampled_states, resampled_log_iws
 
 
 def mcmc(*args, **kwargs):

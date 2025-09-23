@@ -85,7 +85,7 @@ def binary_search_smoothing_jit(
 
         # print warning if not converged
         def _print_warning(_: None):
-            warnings.warn(f"Binary search failed in {max_steps} steps")
+            jax.debug.print(f"Binary search failed in {max_steps} steps")
             return None
 
         jax.lax.cond(step >= max_steps, _print_warning, lambda _: None, operand=None)
