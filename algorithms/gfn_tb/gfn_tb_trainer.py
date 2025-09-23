@@ -21,36 +21,43 @@ from utils.print_utils import print_results
 
 def gfn_tb_trainer(cfg, target):
     key_gen = jax.random.PRNGKey(cfg.seed)
+
     dim = target.dim
     alg_cfg = cfg.algorithm
+    buffer_cfg = alg_cfg.buffer
+    batch_size = alg_cfg.batch_size
+    num_steps = alg_cfg.num_steps
+    reference_process = alg_cfg.reference_process
+    noise_schedule = alg_cfg.noise_schedule
+    loss_type = alg_cfg.loss_type
 
     target_xs = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
     # Define initial and target density
-    if alg_cfg.reference_process == "pinned_brownian":  # Following PIS
+    if reference_process == "pinned_brownian":  # Following PIS
         initial_dist = None
         aux_tuple = (dim,)
-    elif alg_cfg.reference_process in ["ou", "ou_dds"]:  # DIS or DDS
+    elif reference_process in ["ou", "ou_dds"]:  # DIS or DDS
         initial_dist = distrax.MultivariateNormalDiag(
             jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
         )
         aux_tuple = (alg_cfg.init_std, initial_dist.log_prob)
-        if alg_cfg.reference_process == "ou_dds":
+        if reference_process == "ou_dds":
             aux_tuple = (*aux_tuple, alg_cfg.noise_scale)  # DDS
     else:
-        raise ValueError(f"Reference process {alg_cfg.reference_process} not supported.")
+        raise ValueError(f"Reference process {reference_process} not supported.")
 
     # Initialize the buffer
-    use_buffer = alg_cfg.buffer.use
+    use_buffer = buffer_cfg.use
     buffer = buffer_state = None
     if use_buffer:
         buffer = build_terminal_state_buffer(
             dim=dim,
-            max_length=alg_cfg.buffer.max_length_in_batches * alg_cfg.batch_size,
-            prioritize_by=alg_cfg.buffer.prioritize_by,
-            target_ess=alg_cfg.buffer.target_ess,
-            sampling_method=alg_cfg.buffer.sampling_method,
-            rank_k=alg_cfg.buffer.rank_k,
+            max_length=buffer_cfg.max_length_in_batches * batch_size,
+            prioritize_by=buffer_cfg.prioritize_by,
+            target_ess=buffer_cfg.target_ess,
+            sampling_method=buffer_cfg.sampling_method,
+            rank_k=buffer_cfg.rank_k,
         )
         buffer_state = buffer.init(dtype=target_xs.dtype, device=target_xs.device)
 
@@ -60,22 +67,22 @@ def gfn_tb_trainer(cfg, target):
 
     rnd_partial_base = partial(
         rnd,
-        reference_process=alg_cfg.reference_process,
+        reference_process=reference_process,
         aux_tuple=aux_tuple,
         target=target,
-        num_steps=cfg.algorithm.num_steps,
-        noise_schedule=cfg.algorithm.noise_schedule,
+        num_steps=num_steps,
+        noise_schedule=noise_schedule,
         use_lp=alg_cfg.model.use_lp,
         initial_dist=initial_dist,
     )
-    loss_fn_base = partial(loss_fn, loss_type=alg_cfg.loss_type)
+    loss_fn_base = partial(loss_fn, loss_type=loss_type)
 
     # Define the function to be JIT-ed for FWD pass
     @partial(jax.jit)
     @partial(jax.grad, argnums=2, has_aux=True)
     def loss_fwd_grad_fn(key, model_state, params, invtemp=1.0):
         # prior_to_target=True, terminal_xs=None
-        rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
+        rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
         return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
 
     # --- Define the function to be JIT-ed for BWD pass ---
@@ -85,7 +92,7 @@ def gfn_tb_trainer(cfg, target):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
-            batch_size=alg_cfg.batch_size,
+            batch_size=batch_size,
             prior_to_target=False,
             terminal_xs=terminal_xs,
             log_rewards=log_rewards,
@@ -99,16 +106,16 @@ def gfn_tb_trainer(cfg, target):
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
     ### Prefill phase
-    if use_buffer and alg_cfg.buffer.prefill_steps > 0:
+    if use_buffer and buffer_cfg.prefill_steps > 0:
         # Define the function to be JIT-ed for FWD pass
         @partial(jax.jit)
         def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
             # prior_to_target=True, terminal_xs=None
-            rnd_p = partial(rnd_partial_base, batch_size=alg_cfg.batch_size, prior_to_target=True)
+            rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
             return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
 
         assert buffer is not None and buffer_state is not None
-        for _ in range(alg_cfg.buffer.prefill_steps):
+        for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
             _, (xs, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_nograd_fn(
                 key, model_state, model_state.params
@@ -124,7 +131,7 @@ def gfn_tb_trainer(cfg, target):
         )
 
         # On-policy training with forward samples
-        if not use_buffer or it % (alg_cfg.buffer.bwd_to_fwd_ratio + 1) == 0:
+        if not use_buffer or it % (buffer_cfg.bwd_to_fwd_ratio + 1) == 0:
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
             grads, (xs, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_grad_fn(
@@ -145,7 +152,7 @@ def gfn_tb_trainer(cfg, target):
 
             # Sample terminal states from buffer
             key, key_gen = jax.random.split(key_gen)
-            samples, log_rewards, indices = buffer.sample(buffer_state, key, alg_cfg.batch_size)
+            samples, log_rewards, indices = buffer.sample(buffer_state, key, batch_size)
 
             # Get grads with the off-policy samples
             key, key_gen = jax.random.split(key_gen)
@@ -155,20 +162,20 @@ def gfn_tb_trainer(cfg, target):
             model_state = model_state.apply_gradients(grads=grads)
 
             # Update scores in buffer if needed
-            if alg_cfg.buffer.update_score:
+            if buffer_cfg.update_score:
                 buffer_state = buffer.update_priority(
                     buffer_state, indices, (log_pbs_over_pfs + log_rewards), log_rewards, losses
                 )
 
         if cfg.use_wandb:
             wandb.log({"loss": jnp.mean(losses)}, step=it)
-            if alg_cfg.loss_type == "tb":
+            if loss_type == "tb":
                 wandb.log({"logZ_learned": model_state.params["params"]["logZ"]}, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)
             logger["stats/step"].append(it)
-            logger["stats/nfe"].append((it + 1) * alg_cfg.batch_size)  # FIXME
+            logger["stats/nfe"].append((it + 1) * batch_size)  # FIXME
 
             logger.update(eval_fn(model_state, key))
 

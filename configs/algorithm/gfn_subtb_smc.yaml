@@ -55,8 +55,8 @@ buffer:
 
 smc:
   use: True
-  resample_threshold: 1.0
-  target_ess: 0.20
+  resample_threshold: 0.50
+  target_ess: 0.05
   sampling_method: systematic
 
 mcmc:

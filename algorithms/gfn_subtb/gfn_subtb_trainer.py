@@ -27,9 +27,8 @@ def gfn_subtb_trainer(cfg, target):
     key_gen = jax.random.PRNGKey(cfg.seed)
 
     dim = target.dim
-    target_xs = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
-
     alg_cfg = cfg.algorithm
+    buffer_cfg = alg_cfg.buffer
     batch_size = alg_cfg.batch_size
     num_steps = alg_cfg.num_steps
     n_chunks = alg_cfg.n_chunks
@@ -37,6 +36,8 @@ def gfn_subtb_trainer(cfg, target):
     noise_schedule = alg_cfg.noise_schedule
     loss_type = alg_cfg.loss_type
     alternate = loss_type in ["tb_subtb_alt", "lv_subtb_alt"]
+
+    target_xs = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
     # Define initial and target density
     if reference_process == "pinned_brownian":  # Following PIS
@@ -53,10 +54,9 @@ def gfn_subtb_trainer(cfg, target):
         raise ValueError(f"Reference process {reference_process} not supported.")
 
     # Initialize the buffer
-    use_buffer = alg_cfg.buffer.use
-    buffer = buffer_state = buffer_cfg = None
+    use_buffer = buffer_cfg.use
+    buffer = buffer_state = None
     if use_buffer:
-        buffer_cfg = alg_cfg.buffer
         buffer = build_terminal_state_buffer(
             dim=dim,
             max_length=buffer_cfg.max_length_in_batches * batch_size,
