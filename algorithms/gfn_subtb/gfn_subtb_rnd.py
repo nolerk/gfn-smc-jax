@@ -205,7 +205,7 @@ def per_sample_rnd_ou_dds(
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
         step = per_step_input
-        t = (step / num_steps).astype(jnp.float32)
+        t = step / num_steps
 
         s = jax.lax.stop_gradient(s)
 
@@ -249,7 +249,7 @@ def per_sample_rnd_ou_dds(
     def simulate_target_to_prior(state, per_step_input):
         s_next, key_gen = state
         step = per_step_input
-        t = (step / num_steps).astype(jnp.float32)
+        t = step / num_steps
 
         s_next = jax.lax.stop_gradient(s_next)
 
@@ -564,15 +564,14 @@ def loss_fn_joint(
     # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]
     # subtb_discrepancy1 = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
     # The below is equivalent to the above lines but avoids numerical instability.
+    log_pfs_over_pbs = jax.lax.stop_gradient(log_pfs_over_pbs)
     subtb_discrepancy1 = (
         log_fs[:, :-1:chunk_size]
-        + jax.lax.stop_gradient(log_pfs_over_pbs.reshape(bs, n_chunks, -1).sum(-1))
+        + log_pfs_over_pbs.reshape(bs, n_chunks, -1).sum(-1)
         - log_fs[:, chunk_size::chunk_size]
     )
 
-    log_pfs_over_pbs_cumsum = jax.lax.stop_gradient(
-        jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
-    )
+    log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
     subtb_discrepancy2 = (
         log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs[:, [-1]]
     ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
@@ -588,7 +587,7 @@ def loss_fn_joint(
     )
     return jnp.mean(tb_losses + subtb_weight * subtb_losses.mean(-1)), (
         trajectories,
-        jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
+        -log_pfs_over_pbs,  # log(pb(s'->s)/pf(s->s'))
         -terminal_costs,  # log_rewards
         jax.lax.stop_gradient(tb_losses),
         jax.lax.stop_gradient(subtb_losses),

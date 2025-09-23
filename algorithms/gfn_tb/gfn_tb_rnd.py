@@ -172,7 +172,7 @@ def per_sample_rnd_ou_dds(
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
         step = per_step_input
-        t = (step / num_steps).astype(jnp.float32)
+        t = step / num_steps
 
         s = jax.lax.stop_gradient(s)
 
@@ -208,7 +208,7 @@ def per_sample_rnd_ou_dds(
     def simulate_target_to_prior(state, per_step_input):
         s_next, key_gen = state
         step = per_step_input
-        t = (step / num_steps).astype(jnp.float32)
+        t = step / num_steps
 
         s_next = jax.lax.stop_gradient(s_next)
 
