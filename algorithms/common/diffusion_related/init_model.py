@@ -86,7 +86,10 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             )
         if (
             (alg_cfg.name == "gfn_tb" and alg_cfg.loss_type == "tb")
-            or (alg_cfg.name == "gfn_subtb" and "tb_subtb" in alg_cfg.loss_type)
+            or (
+                (alg_cfg.name == "gfn_subtb" or alg_cfg.name == "gfn_subtb_smc")
+                and "tb_subtb" in alg_cfg.loss_type
+            )
             or (alg_cfg.reference_process in ["ou", "ou_dds"])
         ):
             additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
