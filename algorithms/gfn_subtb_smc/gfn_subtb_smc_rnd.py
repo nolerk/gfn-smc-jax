@@ -47,7 +47,7 @@ def per_sample_subtraj_rnd_ou_dds(
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
         step = per_step_input
-        t = (step / num_steps).astype(jnp.float32)
+        t = step / num_steps
 
         s = jax.lax.stop_gradient(s)
 
@@ -91,7 +91,7 @@ def per_sample_subtraj_rnd_ou_dds(
     def simulate_target_to_prior(state, per_step_input):
         s_next, key_gen = state
         step = per_step_input
-        t = (step / num_steps).astype(jnp.float32)
+        t = step / num_steps
 
         s_next = jax.lax.stop_gradient(s_next)
 
@@ -152,8 +152,34 @@ def per_sample_subtraj_rnd_ou_dds(
     return end_state, subtrajectory, fwd_log_prob, bwd_log_prob, log_f
 
 
+def get_end_state_log_f(
+    model_state: TrainState,
+    params: ModelParams,
+    end_state: Array,
+    aux_tuple: tuple,
+    target: Target,
+    num_steps: int,
+    end_step: int,
+    noise_schedule: Callable[[int], float],  # Not used here
+    partial_energy: bool,
+):
+    init_std, init_log_prob, noise_scale = aux_tuple
+    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
+    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
+
+    _, end_state_log_f = model_state.apply_fn(
+        params, end_state, (end_step / num_steps) * jnp.ones(1), jnp.zeros(end_state.shape[0])
+    )  # langevin doesn't affect the log_f
+    if partial_energy:
+        weight = 1 - lambda_ts[end_step]
+        end_state_log_f = end_state_log_f + get_flow_bias(
+            weight, init_log_prob(end_state), target.log_prob(end_state)
+        )
+    return end_state_log_f
+
+
 ### simulate ###
-def batch_simulate_fwd(
+def batch_simulate_subtraj_fwd(
     key: RandomKey,
     model_state: TrainState,
     params: ModelParams,
@@ -180,7 +206,7 @@ def batch_simulate_fwd(
 
     ### subtrajectory step functions ###
     def batch_simulate_subtrajectory(step_input, per_step_input):
-        (input_states, key_gen) = step_input
+        (states, log_iws, key_gen) = step_input
         start_step = per_step_input
 
         reference_process, aux_tuple, noise_schedule, use_lp, partial_energy = sampling_configs
@@ -194,14 +220,14 @@ def batch_simulate_fwd(
             "ou_dds": per_sample_subtraj_rnd_ou_dds,
         }[reference_process]
 
-        next_input_states, subtrajectories, fwd_log_probs, bwd_log_probs, log_fs = jax.vmap(
+        next_states, subtrajectories, fwd_log_probs, bwd_log_probs, log_fs = jax.vmap(
             per_sample_fn,
             in_axes=(0, None, None, 0, None, None, None, None, None, None, None, None),
         )(
             keys,
             model_state,
             params,
-            input_states,
+            states,
             aux_tuple,
             target,
             num_steps,
@@ -212,90 +238,163 @@ def batch_simulate_fwd(
             True,  # prior_to_target
         )
 
-        ## Do resampling
+        def _compute_last_step(_):
+            end_state_log_fs = target.log_prob(next_states)
+            log_rewards = end_state_log_fs
+            return end_state_log_fs, log_rewards
+
+        def _compute_not_last_step(_):
+            end_state_log_fs = jax.vmap(
+                get_end_state_log_f,
+                in_axes=(None, None, 0, None, None, None, None, None, None),
+            )(
+                model_state,
+                params,
+                next_states,
+                aux_tuple,
+                target,
+                num_steps,
+                start_step + subtraj_length,
+                noise_schedule,
+                partial_energy,
+            )
+            log_rewards = jnp.zeros(batch_size)
+            return end_state_log_fs, log_rewards
+
+        end_state_log_fs, log_rewards = jax.lax.cond(
+            jnp.equal(start_step + subtraj_length, num_steps),
+            _compute_last_step,
+            _compute_not_last_step,
+            next_states,
+        )
+
+        next_log_iws = log_iws + (
+            end_state_log_fs + bwd_log_probs.sum(-1) - log_fs[:, 0] + fwd_log_probs.sum(-1)
+        )
+
+        ## Do resampling with the adaptive tempering
         # TODO
 
         ## Do MCMC
         # TODO
 
         ## Return outputs
-        next_step_input = (next_input_states, key_gen)
-        per_subtraj_outputs = (subtrajectories, fwd_log_probs, bwd_log_probs, log_fs)
+        next_step_input = (next_states, next_log_iws, key_gen)
+        per_subtraj_outputs = (subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, log_rewards)
         return next_step_input, per_subtraj_outputs
 
     # Define initial state
     key, key_gen = jax.random.split(key)
     if initial_dist is not None:
-        initial_states = initial_dist.sample(seed=key, sample_shape=(batch_size,))
+        init_states = initial_dist.sample(seed=key, sample_shape=(batch_size,))
     else:
-        initial_states = jnp.zeros((batch_size, target.dim))
-    initial_input = (initial_states, key_gen)
+        init_states = jnp.zeros((batch_size, target.dim))
+    init_fwd_log_probs = (
+        initial_dist.log_prob(init_states) if initial_dist is not None else jnp.zeros(batch_size)
+    )
+    init_input = (init_states, -init_fwd_log_probs, key_gen)
 
     # Define per step inputs
     subtraj_start_steps = jnp.arange(0, num_steps, subtraj_length)
     per_subtraj_inputs = subtraj_start_steps
 
     final_outputs, per_subtraj_outputs = jax.lax.scan(
-        batch_simulate_subtrajectory, initial_input, per_subtraj_inputs
+        batch_simulate_subtrajectory, init_input, per_subtraj_inputs
     )
 
-    final_states, _ = final_outputs
+    final_states, final_iws, _ = final_outputs
     # final_states.shape == (batch_size, dim)
-    subtrajectories, fwd_log_probs, bwd_log_probs, log_fs = per_subtraj_outputs
+    # final_iws.shape == (batch_size,)
+    subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, log_rewards = per_subtraj_outputs
     # subtrajectories.shape == (#subtrajs, batch_size, subtraj_length, dim)
+    # log_rewards.shape == (#subtrajs, batch_size)
     # other outputs have shape (#subtrajs, batch_size, subtraj_length)
 
-    return None  # TODO
+    return (
+        final_states,
+        subtrajectories,
+        fwd_log_probs,
+        bwd_log_probs,
+        log_fs,
+        log_rewards,
+        init_fwd_log_probs,
+    )
 
 
-### loss_fn ###
-
-
+####################################################################################################
+# Temporary loss function for sanity check
 def loss_fn(
     key: RandomKey,
     model_state: TrainState,
     params: ModelParams,
-    rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
-    n_chunks: int,
+    simulate_subtraj: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
+    loss_type: Literal["subtb", "tb_subtb", "lv_subtb"] = "subtb",
+    n_chunks: int = 1,
+    subtb_weight: float = 1.0,
     invtemp: float = 1.0,
     huber_delta: float = 1e5,
     logr_clip: float = -1e5,
 ):
     (
-        _,
-        _,
-        _,
-        terminal_costs,
-        log_pfs_over_pbs,
-        trajectories,
+        final_states,
+        subtrajectories,
+        fwd_log_probs,
+        bwd_log_probs,
         log_fs,
+        log_rewards,
         init_fwd_log_probs,
-    ) = rnd_partial(key, model_state, params)
+    ) = simulate_subtraj(key, model_state, params)
 
-    bs, T = log_pfs_over_pbs.shape
-    assert T % n_chunks == 0
-    chunk_size = T // n_chunks
+    n_subtrajs, bs, subtraj_length, dim = subtrajectories.shape
+    T = n_subtrajs * subtraj_length
 
+    trajectories = jnp.transpose(subtrajectories, (1, 0, 2, 3)).reshape(bs, T, dim)
+    fwd_log_probs = jnp.transpose(fwd_log_probs, (1, 0, 2)).reshape(bs, T)
+    bwd_log_probs = jnp.transpose(bwd_log_probs, (1, 0, 2)).reshape(bs, T)
+    log_fs = jnp.transpose(log_fs, (1, 0, 2)).reshape(bs, T)
+    log_rewards = log_rewards[-1, :]
+
+    log_pfs_over_pbs = fwd_log_probs - bwd_log_probs
     log_rewards = jnp.where(
-        -terminal_costs > logr_clip,
-        -terminal_costs,
-        logr_clip - jnp.log(logr_clip + terminal_costs),
+        log_rewards > logr_clip,
+        log_rewards,
+        logr_clip - jnp.log(logr_clip - log_rewards),
     )
-    log_fs = log_fs.at[:, 0].set(params["params"]["logZ"] + init_fwd_log_probs)
-    log_fs = log_fs.at[:, -1].set(log_rewards * invtemp)
+    logZ = params["params"]["logZ"]
+
+    tb_losses = jnp.zeros_like(log_rewards)
+    if loss_type != "subtb":
+        log_ratio = (init_fwd_log_probs + log_pfs_over_pbs.sum(-1)) - log_rewards * invtemp
+        if loss_type == "tb_subtb":
+            tb_losses = log_ratio + logZ
+            logZ = jax.lax.stop_gradient(logZ)
+        else:  # loss_type == "lv_subtb"
+            tb_losses = log_ratio - jnp.mean(log_ratio)
+
+        tb_losses = jnp.where(
+            jnp.abs(tb_losses) <= huber_delta,
+            jnp.square(tb_losses),
+            huber_delta * jnp.abs(tb_losses) - 0.5 * huber_delta**2,
+        )
+
+    log_fs = log_fs.at[:, 0].set(logZ + init_fwd_log_probs)
+    log_fs = jnp.concatenate([log_fs, (log_rewards * invtemp)[:, None]], axis=1)
 
     # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]
     # subtb_discrepancy1 = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
     # The below is equivalent to the above lines but avoids numerical instability.
+    log_pfs_over_pbs = jax.lax.stop_gradient(log_pfs_over_pbs)
     subtb_discrepancy1 = (
-        log_fs[:, :-1:chunk_size]
+        log_fs[:, :-1:subtraj_length]
         + log_pfs_over_pbs.reshape(bs, n_chunks, -1).sum(-1)
-        - log_fs[:, chunk_size::chunk_size]
+        - log_fs[:, subtraj_length::subtraj_length]
     )
 
     log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
     subtb_discrepancy2 = (
-        log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs[:, [-1]]
+        log_fs[:, :-1:subtraj_length]
+        + log_pfs_over_pbs_cumsum[:, ::subtraj_length]
+        - log_fs[:, [-1]]
     ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
 
     # subtb_discrepancy = subtb_discrepancy1
@@ -309,9 +408,13 @@ def loss_fn(
     )
 
     log_pfs_over_pbs = log_pfs_over_pbs.at[:, 0].set(log_pfs_over_pbs[:, 0] + init_fwd_log_probs)
-    return jnp.mean(subtb_losses.mean(-1)), (
+    return jnp.mean(tb_losses + subtb_weight * subtb_losses.mean(-1)), (
         trajectories,
-        jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
-        -terminal_costs,  # log_rewards
+        -log_pfs_over_pbs,  # log(pb(s'->s)/pf(s->s'))
+        log_rewards,
+        jax.lax.stop_gradient(tb_losses),
         jax.lax.stop_gradient(subtb_losses),
     )
+
+
+####################################################################################################
