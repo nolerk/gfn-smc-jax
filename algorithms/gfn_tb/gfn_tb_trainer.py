@@ -113,7 +113,9 @@ def gfn_tb_trainer(cfg, target):
             _, (xs, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_nograd_fn(
                 key, model_state, model_state.params
             )
-            buffer_state = buffer.add(buffer_state, xs, log_pbs_over_pfs, log_rewards, losses)
+            buffer_state = buffer.add(
+                buffer_state, xs, (log_pbs_over_pfs + log_rewards), log_rewards, losses
+            )
 
     ### Training phase
     for it in range(alg_cfg.iters):
@@ -133,7 +135,9 @@ def gfn_tb_trainer(cfg, target):
             # Add samples to buffer
             if use_buffer:
                 assert buffer is not None and buffer_state is not None
-                buffer_state = buffer.add(buffer_state, xs, log_pbs_over_pfs, log_rewards, losses)
+                buffer_state = buffer.add(
+                    buffer_state, xs, (log_pbs_over_pfs + log_rewards), log_rewards, losses
+                )
 
         # Off-policy training with buffer samples
         else:
@@ -153,7 +157,7 @@ def gfn_tb_trainer(cfg, target):
             # Update scores in buffer if needed
             if alg_cfg.buffer.update_score:
                 buffer_state = buffer.update_priority(
-                    buffer_state, indices, log_pbs_over_pfs, log_rewards, losses
+                    buffer_state, indices, (log_pbs_over_pfs + log_rewards), log_rewards, losses
                 )
 
         if cfg.use_wandb:

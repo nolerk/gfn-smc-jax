@@ -8,6 +8,7 @@ from flax.training.train_state import TrainState
 from algorithms.common.types import Array, RandomKey, ModelParams
 from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
+from algorithms.gfn_subtb_smc.sampling_utils import binary_search_smoothing_jit, ess
 from targets.base_target import Target
 
 
@@ -178,6 +179,25 @@ def get_end_state_log_f(
     return end_state_log_f
 
 
+def resampling(
+    key: RandomKey,
+    states: Array,
+    log_iws: Array,
+    sampling_func: Callable[[RandomKey, Array, int, bool], Array],
+    target_ess: float,
+):
+    tempered_log_iws, temp = binary_search_smoothing_jit(log_iws, target_ess)
+    indices = sampling_func(key, tempered_log_iws, log_iws.shape[0], replacement=True)
+    resample_states = states[indices]
+    resample_log_iws = log_iws[indices] * (1 - 1 / temp)
+    return resample_states, resample_log_iws
+
+
+def mcmc(*args, **kwargs):
+    # TODO: implement MCMC
+    raise NotImplementedError("MCMC not implemented yet.")
+
+
 ### simulate ###
 def batch_simulate_subtraj_fwd(
     key: RandomKey,
@@ -195,14 +215,16 @@ def batch_simulate_subtraj_fwd(
         bool,  # use_lp
         bool,  # partial_energy
     ],
-    smc_settings: dict,  # resampling confg
-    mcmc_settings: dict,  # mcmc config
+    smc_configs: tuple[
+        bool,  # use
+        float,  # resample_threshold
+        Callable[[RandomKey, Array, int, bool], Array],  # sampling_func
+        float,  # target_ess
+    ],
+    mcmc_configs: tuple[bool,],  # use
 ):
     assert num_steps % num_subtrajs == 0
     subtraj_length = num_steps // num_subtrajs
-
-    # TODO: support mcmc
-    markov_kernel = None
 
     ### subtrajectory step functions ###
     def batch_simulate_subtrajectory(step_input, per_step_input):
@@ -240,8 +262,7 @@ def batch_simulate_subtraj_fwd(
 
         def _compute_last_step(_):
             end_state_log_fs = target.log_prob(next_states)
-            log_rewards = end_state_log_fs
-            return end_state_log_fs, log_rewards
+            return end_state_log_fs
 
         def _compute_not_last_step(_):
             end_state_log_fs = jax.vmap(
@@ -258,10 +279,9 @@ def batch_simulate_subtraj_fwd(
                 noise_schedule,
                 partial_energy,
             )
-            log_rewards = jnp.zeros(batch_size)
-            return end_state_log_fs, log_rewards
+            return end_state_log_fs
 
-        end_state_log_fs, log_rewards = jax.lax.cond(
+        end_state_log_fs = jax.lax.cond(
             jnp.equal(start_step + subtraj_length, num_steps),
             _compute_last_step,
             _compute_not_last_step,
@@ -273,14 +293,32 @@ def batch_simulate_subtraj_fwd(
         )
 
         ## Do resampling with the adaptive tempering
-        # TODO
+        key, key_gen = jax.random.split(key_gen)
+        use_resampling, resample_threshold, sampling_func, target_ess = smc_configs
+        if use_resampling:
+            normalized_ess = ess(log_iws=next_log_iws) / batch_size
+            next_states, next_log_iws = jax.lax.cond(
+                normalized_ess < resample_threshold,
+                lambda args: resampling(args[0], args[1], args[2], sampling_func, target_ess),
+                lambda args: (args[1], args[2]),
+                (key, next_states, next_log_iws),
+            )
 
-        ## Do MCMC
-        # TODO
+        ## Do MCMC (Rejuvenation)
+        key, key_gen = jax.random.split(key_gen)
+        use_mcmc = mcmc_configs[0]
+        if use_mcmc:
+            next_states, next_log_iws = mcmc(key, next_states, next_log_iws, mcmc_configs)
 
         ## Return outputs
         next_step_input = (next_states, next_log_iws, key_gen)
-        per_subtraj_outputs = (subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, log_rewards)
+        per_subtraj_outputs = (
+            subtrajectories,
+            fwd_log_probs,
+            bwd_log_probs,
+            log_fs,
+            end_state_log_fs,
+        )
         return next_step_input, per_subtraj_outputs
 
     # Define initial state
@@ -292,7 +330,8 @@ def batch_simulate_subtraj_fwd(
     init_fwd_log_probs = (
         initial_dist.log_prob(init_states) if initial_dist is not None else jnp.zeros(batch_size)
     )
-    init_input = (init_states, -init_fwd_log_probs, key_gen)
+    init_log_iws = -init_fwd_log_probs - jnp.log(batch_size)
+    init_input = (init_states, init_log_iws, key_gen)
 
     # Define per step inputs
     subtraj_start_steps = jnp.arange(0, num_steps, subtraj_length)
@@ -305,101 +344,63 @@ def batch_simulate_subtraj_fwd(
     final_states, final_iws, _ = final_outputs
     # final_states.shape == (batch_size, dim)
     # final_iws.shape == (batch_size,)
-    subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, log_rewards = per_subtraj_outputs
+    subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, end_state_log_fs = per_subtraj_outputs
     # subtrajectories.shape == (#subtrajs, batch_size, subtraj_length, dim)
-    # log_rewards.shape == (#subtrajs, batch_size)
-    # other outputs have shape (#subtrajs, batch_size, subtraj_length)
+    # fwd_log_probs, bwd_log_probs, log_fs have shape (#subtrajs, batch_size, subtraj_length)
+    # end_state_log_fs have shape (#subtrajs, batch_size)
 
     return (
         final_states,
+        final_iws,
         subtrajectories,
         fwd_log_probs,
         bwd_log_probs,
         log_fs,
-        log_rewards,
+        end_state_log_fs,
         init_fwd_log_probs,
     )
 
 
-####################################################################################################
-# Temporary loss function for sanity check
-def loss_fn(
+def loss_fn_subtraj(
     key: RandomKey,
     model_state: TrainState,
     params: ModelParams,
     simulate_subtraj: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
-    loss_type: Literal["subtb", "tb_subtb", "lv_subtb"] = "subtb",
-    n_chunks: int = 1,
-    subtb_weight: float = 1.0,
     invtemp: float = 1.0,
     huber_delta: float = 1e5,
     logr_clip: float = -1e5,
 ):
     (
         final_states,
+        final_iws,
         subtrajectories,
         fwd_log_probs,
         bwd_log_probs,
         log_fs,
-        log_rewards,
+        end_state_log_fs,
         init_fwd_log_probs,
     ) = simulate_subtraj(key, model_state, params)
 
-    n_subtrajs, bs, subtraj_length, dim = subtrajectories.shape
+    n_subtrajs, _, subtraj_length, _ = subtrajectories.shape
     T = n_subtrajs * subtraj_length
 
-    trajectories = jnp.transpose(subtrajectories, (1, 0, 2, 3)).reshape(bs, T, dim)
-    fwd_log_probs = jnp.transpose(fwd_log_probs, (1, 0, 2)).reshape(bs, T)
-    bwd_log_probs = jnp.transpose(bwd_log_probs, (1, 0, 2)).reshape(bs, T)
-    log_fs = jnp.transpose(log_fs, (1, 0, 2)).reshape(bs, T)
-    log_rewards = log_rewards[-1, :]
-
-    log_pfs_over_pbs = fwd_log_probs - bwd_log_probs
+    log_rewards = end_state_log_fs[-1, :]
     log_rewards = jnp.where(
         log_rewards > logr_clip,
         log_rewards,
-        logr_clip - jnp.log(logr_clip - log_rewards),
+        logr_clip - jnp.log(logr_clip + log_rewards),
     )
-    logZ = params["params"]["logZ"]
 
-    tb_losses = jnp.zeros_like(log_rewards)
-    if loss_type != "subtb":
-        log_ratio = (init_fwd_log_probs + log_pfs_over_pbs.sum(-1)) - log_rewards * invtemp
-        if loss_type == "tb_subtb":
-            tb_losses = log_ratio + logZ
-            logZ = jax.lax.stop_gradient(logZ)
-        else:  # loss_type == "lv_subtb"
-            tb_losses = log_ratio - jnp.mean(log_ratio)
+    log_pfs_over_pbs = fwd_log_probs - bwd_log_probs
+    end_state_log_fs = end_state_log_fs.at[-1, :].set(log_rewards * invtemp)
 
-        tb_losses = jnp.where(
-            jnp.abs(tb_losses) <= huber_delta,
-            jnp.square(tb_losses),
-            huber_delta * jnp.abs(tb_losses) - 0.5 * huber_delta**2,
-        )
-
-    log_fs = log_fs.at[:, 0].set(logZ + init_fwd_log_probs)
-    log_fs = jnp.concatenate([log_fs, (log_rewards * invtemp)[:, None]], axis=1)
+    log_fs = log_fs.at[0, :, 0].set(params["params"]["logZ"] + init_fwd_log_probs)
+    log_fs = jnp.concatenate([log_fs, end_state_log_fs[:, :, None]], axis=2)
 
     # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]
-    # subtb_discrepancy1 = db_discrepancy.reshape(bs, n_chunks, -1).sum(-1)
+    # subtb_discrepancy1 = db_discrepancy.reshape(bs, n_subtrajs, -1).sum(-1)
     # The below is equivalent to the above lines but avoids numerical instability.
-    log_pfs_over_pbs = jax.lax.stop_gradient(log_pfs_over_pbs)
-    subtb_discrepancy1 = (
-        log_fs[:, :-1:subtraj_length]
-        + log_pfs_over_pbs.reshape(bs, n_chunks, -1).sum(-1)
-        - log_fs[:, subtraj_length::subtraj_length]
-    )
-
-    log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
-    subtb_discrepancy2 = (
-        log_fs[:, :-1:subtraj_length]
-        + log_pfs_over_pbs_cumsum[:, ::subtraj_length]
-        - log_fs[:, [-1]]
-    ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
-
-    # subtb_discrepancy = subtb_discrepancy1
-    # subtb_discrepancy = subtb_discrepancy2
-    subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
+    subtb_discrepancy = log_fs[:, :, 0] + log_pfs_over_pbs.sum(-1) - log_fs[:, :, -1]
 
     subtb_losses = jnp.where(
         jnp.abs(subtb_discrepancy) <= huber_delta,
@@ -407,14 +408,10 @@ def loss_fn(
         huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
     )
 
-    log_pfs_over_pbs = log_pfs_over_pbs.at[:, 0].set(log_pfs_over_pbs[:, 0] + init_fwd_log_probs)
-    return jnp.mean(tb_losses + subtb_weight * subtb_losses.mean(-1)), (
-        trajectories,
-        -log_pfs_over_pbs,  # log(pb(s'->s)/pf(s->s'))
+    return jnp.mean(subtb_losses.mean(0)), (
+        final_states,
+        jax.lax.stop_gradient(final_iws),
+        subtrajectories,
         log_rewards,
-        jax.lax.stop_gradient(tb_losses),
         jax.lax.stop_gradient(subtb_losses),
     )
-
-
-####################################################################################################

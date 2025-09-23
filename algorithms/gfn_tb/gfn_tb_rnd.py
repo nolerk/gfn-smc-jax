@@ -68,7 +68,7 @@ def per_sample_rnd_pinned_brownian(
         bwd_log_prob = jax.lax.cond(
             step == 0,
             lambda _: jnp.array(0.0),
-            lambda args: log_prob_kernel(args[0], args[1], args[2]),
+            lambda args: log_prob_kernel(*args),
             operand=(s, bwd_mean, bwd_scale),
         )
 
@@ -94,14 +94,14 @@ def per_sample_rnd_pinned_brownian(
         s, key_gen = jax.lax.cond(
             step == 0,
             lambda _: (jnp.zeros_like(s_next), key_gen),
-            lambda args: sample_kernel(args[0], args[1], args[2]),
+            lambda args: sample_kernel(*args),
             operand=(key_gen, bwd_mean, bwd_scale),
         )
         s = jax.lax.stop_gradient(s)
         bwd_log_prob = jax.lax.cond(
             step == 0,
             lambda _: jnp.array(0.0),
-            lambda args: log_prob_kernel(args[0], args[1], args[2]),
+            lambda args: log_prob_kernel(*args),
             operand=(s, bwd_mean, bwd_scale),
         )
 

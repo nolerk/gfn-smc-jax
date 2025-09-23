@@ -8,6 +8,61 @@ import jax.numpy as jnp
 from jax import random
 
 
+def ess(
+    log_iws: chex.Array | None = None,  # (bs,)
+    normalized_weights: chex.Array | None = None,  # (bs,)
+) -> chex.Array:
+    if normalized_weights is None:
+        assert log_iws is not None
+        normalized_weights = jax.nn.softmax(log_iws, axis=0)  # (bs,)
+    return 1 / (normalized_weights**2).sum()  # scalar
+
+
+def binary_search_smoothing(
+    log_iws: chex.Array,
+    target_ess: float = 0.0,
+    tol=1e-3,
+    max_steps=1000,
+) -> chex.Array:
+    tempering = lambda x, temp: x / temp
+    batch_size = log_iws.shape[0]  # type: ignore
+
+    # Check if tempering is needed
+    if done := ess(log_iws=log_iws) / batch_size >= target_ess:
+        return log_iws
+
+    # Search for a suitable range of search_min and search_max
+    search_min = 1.0
+    search_max = 10.0
+    while ess(tempering(log_iws, search_max)) / batch_size < target_ess:
+        search_min *= 10.0
+        search_max *= 10.0
+
+    new_log_iws = jnp.copy(log_iws)
+    final_temp = 1.0
+    steps = 0
+    while not done:
+        steps += 1
+        mid = (search_min + search_max) / 2
+
+        new_log_iws = tempering(log_iws, mid)  # (bs,)
+        new_ess = ess(log_iws=new_log_iws) / batch_size
+        done = jax.lax.abs(new_ess - target_ess) < tol
+        if done:
+            final_temp = mid
+
+        if new_ess > target_ess:
+            search_max = mid
+        else:
+            search_min = mid
+
+        if steps > max_steps:
+            print(f"Warning: Binary search failed in {max_steps} steps")
+            break
+
+    return new_log_iws, final_temp
+
+
 def multinomial(
     key: jax.Array, weights: chex.Array, N: int, replacement: bool = True
 ) -> chex.Array:

@@ -62,7 +62,7 @@ def per_sample_rnd_pinned_brownian(
             ref_log_prob = jax.lax.cond(
                 step == 0,
                 lambda _: 0.0,
-                lambda args: ref_log_prob_pinned_brownian(args[0], args[1], args[2]),
+                lambda args: ref_log_prob_pinned_brownian(*args),
                 operand=(s, t, sigma_t),
             )
             log_f_bias = get_flow_bias(t, ref_log_prob, log_prob)
@@ -84,7 +84,7 @@ def per_sample_rnd_pinned_brownian(
         bwd_log_prob = jax.lax.cond(
             step == 0,
             lambda _: jnp.array(0.0),
-            lambda args: log_prob_kernel(args[0], args[1], args[2]),
+            lambda args: log_prob_kernel(*args),
             operand=(s, bwd_mean, bwd_scale),
         )
 
@@ -110,14 +110,14 @@ def per_sample_rnd_pinned_brownian(
         s, key_gen = jax.lax.cond(
             step == 0,
             lambda _: (jnp.zeros_like(s_next), key_gen),
-            lambda args: sample_kernel(args[0], args[1], args[2]),
+            lambda args: sample_kernel(*args),
             operand=(key_gen, bwd_mean, bwd_scale),
         )
         s = jax.lax.stop_gradient(s)
         bwd_log_prob = jax.lax.cond(
             step == 0,
             lambda _: jnp.array(0.0),
-            lambda args: log_prob_kernel(args[0], args[1], args[2]),
+            lambda args: log_prob_kernel(*args),
             operand=(s, bwd_mean, bwd_scale),
         )
 
@@ -135,7 +135,7 @@ def per_sample_rnd_pinned_brownian(
             ref_log_prob = jax.lax.cond(
                 step == 0,
                 lambda _: 0.0,
-                lambda args: ref_log_prob_pinned_brownian(args[0], args[1], args[2]),
+                lambda args: ref_log_prob_pinned_brownian(*args),
                 operand=(s, t, sigma_t),
             )
             log_f_bias = get_flow_bias(t, ref_log_prob, log_prob)
@@ -482,14 +482,14 @@ def loss_fn_subtb(
         - log_fs[:, chunk_size::chunk_size]
     )
 
-    log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
-    subtb_discrepancy2 = (
-        log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs[:, [-1]]
-    ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
+    # log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
+    # subtb_discrepancy2 = (
+    #     log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs[:, [-1]]
+    # ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
 
-    # subtb_discrepancy = subtb_discrepancy1
+    subtb_discrepancy = subtb_discrepancy1
     # subtb_discrepancy = subtb_discrepancy2
-    subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
+    # subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
 
     subtb_losses = jnp.where(
         jnp.abs(subtb_discrepancy) <= huber_delta,
@@ -571,14 +571,14 @@ def loss_fn_joint(
         - log_fs[:, chunk_size::chunk_size]
     )
 
-    log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
-    subtb_discrepancy2 = (
-        log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs[:, [-1]]
-    ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
+    # log_pfs_over_pbs_cumsum = jnp.cumsum(log_pfs_over_pbs[:, ::-1], axis=-1)[:, ::-1]
+    # subtb_discrepancy2 = (
+    #     log_fs[:, :-1:chunk_size] + log_pfs_over_pbs_cumsum[:, ::chunk_size] - log_fs[:, [-1]]
+    # ) / jnp.arange(1, n_chunks + 1)[None, ::-1]
 
-    # subtb_discrepancy = subtb_discrepancy1
+    subtb_discrepancy = subtb_discrepancy1
     # subtb_discrepancy = subtb_discrepancy2
-    subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
+    # subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
 
     subtb_losses = jnp.where(
         jnp.abs(subtb_discrepancy) <= huber_delta,

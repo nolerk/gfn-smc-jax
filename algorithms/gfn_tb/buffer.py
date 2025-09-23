@@ -5,7 +5,7 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from algorithms.gfn_tb.sampling_utils import get_sampling_func
+from algorithms.gfn_tb.sampling_utils import binary_search_smoothing, get_sampling_func
 
 
 ### Helper Functions ###
@@ -13,12 +13,12 @@ from algorithms.gfn_tb.sampling_utils import get_sampling_func
 
 def get_priorities(
     prioritize_by: str,
-    log_pbs_over_pfs: chex.Array,
+    log_iws: chex.Array,
     log_rewards: chex.Array,
     losses: chex.Array,
     target_ess: float = 0.0,
 ) -> chex.Array:
-    batch_size = log_pbs_over_pfs.shape[0]  # type: ignore
+    batch_size = log_iws.shape[0]  # type: ignore
     match prioritize_by:
         case "none":
             return jnp.ones((batch_size,))
@@ -27,67 +27,13 @@ def get_priorities(
         case "loss":  # TB loss
             return losses.log()
         case "uiw":
-            log_iws = log_rewards + log_pbs_over_pfs
             if target_ess > 0.0:
-                log_iws = binary_search_smoothing(log_iws, target_ess)
+                log_iws, _ = binary_search_smoothing(log_iws, target_ess)
             return log_iws
         case "piw":
-            log_iws = log_rewards + log_pbs_over_pfs
             return log_iws  # Will be smoothed in the `sample` function
         case _:
             raise ValueError(f"Invalid prioritize_by: {prioritize_by}")
-
-
-def ess(
-    log_iws: chex.Array | None = None,  # (bs,)
-    normalized_weights: chex.Array | None = None,  # (bs,)
-) -> chex.Array:
-    if normalized_weights is None:
-        assert log_iws is not None
-        normalized_weights = jax.nn.softmax(log_iws, axis=0)  # (bs,)
-    return 1 / (normalized_weights**2).sum()  # scalar
-
-
-def binary_search_smoothing(
-    log_iws: chex.Array,
-    target_ess: float = 0.0,
-    tol=1e-3,
-    max_steps=1000,
-) -> chex.Array:
-    tempering = lambda x, temp: x / temp
-    batch_size = log_iws.shape[0]  # type: ignore
-
-    # Check if tempering is needed
-    if done := ess(log_iws=log_iws) / batch_size >= target_ess:
-        return log_iws
-
-    # Search for a suitable range of search_min and search_max
-    search_min = 1.0
-    search_max = 10.0
-    while ess(tempering(log_iws, search_max)) / batch_size < target_ess:
-        search_min *= 10.0
-        search_max *= 10.0
-
-    new_log_iws = jnp.copy(log_iws)
-    steps = 0
-    while not done:
-        steps += 1
-        mid = (search_min + search_max) / 2
-
-        new_log_iws = tempering(log_iws, mid)  # (bs,)
-        new_ess = ess(log_iws=new_log_iws) / batch_size
-        done = jax.lax.abs(new_ess - target_ess) < tol
-
-        if new_ess > target_ess:
-            search_max = mid
-        else:
-            search_min = mid
-
-        if steps > max_steps:
-            print(f"Warning: Binary search failed in {max_steps} steps")
-            break
-
-    return new_log_iws
 
 
 ### Core Data Structures ###
@@ -140,7 +86,7 @@ class AddFn(Protocol):
         self,
         buffer_state: TerminalStateBufferState,
         states: chex.Array,
-        log_pbs_over_pfs: chex.Array,
+        log_iws: chex.Array,
         log_rewards: chex.Array,
         losses: chex.Array,
     ) -> TerminalStateBufferState:
@@ -169,7 +115,7 @@ class UpdatePriorityFn(Protocol):
         self,
         buffer_state: TerminalStateBufferState,
         indices: chex.Array,
-        log_pbs_over_pfs: chex.Array,
+        log_iws: chex.Array,
         log_rewards: chex.Array,
         losses: chex.Array,
     ) -> TerminalStateBufferState:
@@ -265,15 +211,13 @@ def build_terminal_state_buffer(
     def add(
         buffer_state: TerminalStateBufferState,
         states: chex.Array,
-        log_pbs_over_pfs: chex.Array,
+        log_iws: chex.Array,
         log_rewards: chex.Array,
         losses: chex.Array,
     ) -> TerminalStateBufferState:
         """Adds a new batch of data to the buffer."""
         chex.assert_rank(states, 2)
-        priorities = get_priorities_partial(
-            log_pbs_over_pfs=log_pbs_over_pfs, log_rewards=log_rewards, losses=losses
-        )
+        priorities = get_priorities_partial(log_iws=log_iws, log_rewards=log_rewards, losses=losses)
         chex.assert_rank(priorities, 1)
         batch_size = states.shape[0]  # type: ignore
 
@@ -314,7 +258,7 @@ def build_terminal_state_buffer(
         valid_priorities = buffer_state.data.priorities[:buffer_size]  # type: ignore
 
         if prioritize_by == "piw":
-            valid_priorities = binary_search_smoothing(valid_priorities, target_ess)
+            valid_priorities, _ = binary_search_smoothing(valid_priorities, target_ess)
         weights = jax.nn.softmax(valid_priorities, axis=0)
 
         # Sample indices based on the calculated logits
@@ -328,13 +272,13 @@ def build_terminal_state_buffer(
     def update_priority(
         buffer_state: TerminalStateBufferState,
         indices: chex.Array,
-        log_pbs_over_pfs: chex.Array,
+        log_iws: chex.Array,
         log_rewards: chex.Array,
         losses: chex.Array,
     ) -> TerminalStateBufferState:
         """Updates the priorities for a given set of indices."""
         new_priorities = get_priorities_partial(
-            log_pbs_over_pfs=log_pbs_over_pfs, log_rewards=log_rewards, losses=losses
+            log_iws=log_iws, log_rewards=log_rewards, losses=losses
         )
         chex.assert_equal_shape((new_priorities, indices))
 

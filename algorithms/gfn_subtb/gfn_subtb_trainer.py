@@ -12,12 +12,12 @@ import wandb
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
-from algorithms.gfn_subtb.buffer import build_intermediate_state_buffer
 from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn_joint, loss_fn_subtb, loss_fn_tb, rnd
 from algorithms.gfn_subtb.visualise import (
     visualise_intermediate_distribution,
     visualise_true_intermediate_distribution,
 )
+from algorithms.gfn_tb.buffer import build_terminal_state_buffer
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
 from utils.print_utils import print_results
@@ -57,7 +57,7 @@ def gfn_subtb_trainer(cfg, target):
     buffer = buffer_state = buffer_cfg = None
     if use_buffer:
         buffer_cfg = alg_cfg.buffer
-        buffer = build_intermediate_state_buffer(
+        buffer = build_terminal_state_buffer(
             dim=dim,
             max_length=buffer_cfg.max_length_in_batches * batch_size,
             prioritize_by=buffer_cfg.prioritize_by,
@@ -194,11 +194,12 @@ def gfn_subtb_trainer(cfg, target):
             buffer_state = buffer.add(
                 buffer_state,
                 trajectories[:, -1],
-                log_pbs_over_pfs.sum(-1),
+                (log_pbs_over_pfs.sum(-1) + log_rewards),
                 log_rewards,
-                subtb_losses.sum(-1) if loss_type == "subtb" else tb_losses,
+                subtb_losses.mean(-1) if loss_type == "subtb" else tb_losses,
             )
 
+    tb_losses = jnp.zeros(batch_size)  # to avoid error in wandb logging
     ### Training phase
     for it in range(alg_cfg.iters):
         invtemp = get_invtemp(
@@ -220,9 +221,9 @@ def gfn_subtb_trainer(cfg, target):
                 buffer_state = buffer.add(
                     buffer_state,
                     trajectories[:, -1],
-                    log_pbs_over_pfs.sum(-1),
+                    (log_pbs_over_pfs.sum(-1) + log_rewards),
                     log_rewards,
-                    subtb_losses.sum(-1) if loss_type == "subtb" else tb_losses,
+                    subtb_losses.mean(-1) if loss_type == "subtb" else tb_losses,
                 )
 
         # Off-policy training with buffer samples
@@ -245,9 +246,9 @@ def gfn_subtb_trainer(cfg, target):
                 buffer_state = buffer.update_priority(
                     buffer_state,
                     indices,
-                    log_pbs_over_pfs.sum(-1),
+                    (log_pbs_over_pfs.sum(-1) + log_rewards),
                     log_rewards,
-                    subtb_losses.sum(-1) if loss_type == "subtb" else tb_losses,
+                    subtb_losses.mean(-1) if loss_type == "subtb" else tb_losses,
                 )
 
         if cfg.use_wandb:

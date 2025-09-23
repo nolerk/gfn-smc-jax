@@ -15,10 +15,8 @@ noise_scale: 6.  # for ou_dds
 init_logZ: ${target.gfn_subtb.init_logZ}  # for ou or ou_dds
 logZ_step_size: ${target.gfn_subtb.logZ_step_size}  # for ou or ou_dds
 init_invtemp: 1.
-loss_type: tb_subtb  # subtb, tb_subtb, tb_subtb_alt, lv_subtb, lv_subtb_alt
-subtb_weight: 1.0  # used if loss_type is in [tb_subtb, tb_subtb_alt, lv_subtb, lv_subtb_alt]
-learn_flow_every: 400  # used if loss_type is in [tb_subtb_alt, lv_subtb_alt]
-learn_flow_iters: 400  # used if loss_type is in [tb_subtb_alt, lv_subtb_alt]
+loss_type: tb_subtb  # subtb, tb_subtb, lv_subtb
+subtb_weight: 1.0  # used if loss_type is in [tb_subtb, lv_subtb]
 
 # Learning rate scheduler
 lr_schedule:
@@ -29,7 +27,7 @@ lr_schedule:
 defaults:
   - model: pisgrad_net
   - noise_schedule: const
-  - mcmc: hmc
+  - mcmc: hmc  # TODO: mala
 
 model:
   learn_flow: True
@@ -57,9 +55,9 @@ buffer:
 
 smc:
   use: True
-  resample_threshold: 0.3
+  resample_threshold: 1.0
   target_ess: 0.20
-  type: systematic
+  sampling_method: systematic
 
 mcmc:
   use: False
