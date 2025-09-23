@@ -289,7 +289,7 @@ def batch_simulate_subtraj_fwd(
         )
 
         next_log_iws = log_iws + (
-            end_state_log_fs + bwd_log_probs.sum(-1) - log_fs[:, 0] + fwd_log_probs.sum(-1)
+            end_state_log_fs + bwd_log_probs.sum(-1) - log_fs[:, 0] - fwd_log_probs.sum(-1)
         )
 
         ## Do resampling with the adaptive tempering
@@ -308,7 +308,7 @@ def batch_simulate_subtraj_fwd(
         key, key_gen = jax.random.split(key_gen)
         use_mcmc = mcmc_configs[0]
         if use_mcmc:
-            next_states, next_log_iws = mcmc(key, next_states, next_log_iws, mcmc_configs)
+            next_states, next_log_iws = mcmc(key, next_states, next_log_iws)
 
         ## Return outputs
         next_step_input = (next_states, next_log_iws, key_gen)
@@ -330,7 +330,7 @@ def batch_simulate_subtraj_fwd(
     init_fwd_log_probs = (
         initial_dist.log_prob(init_states) if initial_dist is not None else jnp.zeros(batch_size)
     )
-    init_log_iws = -init_fwd_log_probs - jnp.log(batch_size)
+    init_log_iws = -init_fwd_log_probs  # - jnp.log(batch_size)
     init_input = (init_states, init_log_iws, key_gen)
 
     # Define per step inputs

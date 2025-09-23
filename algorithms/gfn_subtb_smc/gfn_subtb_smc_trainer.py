@@ -167,7 +167,7 @@ def gfn_subtb_smc_trainer(cfg, target):
         )
 
         # On-policy training with forward samples
-        if not alg_cfg.smc.use or it % (buffer_cfg.bwd_to_fwd_ratio + 1) == 0:
+        if it % (buffer_cfg.bwd_to_fwd_ratio + 1) == 0:
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
             grads, (_, _, _, log_rewards, subtb_losses) = loss_fwd_grad_fn(
