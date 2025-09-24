@@ -72,7 +72,6 @@ def gfn_tb_trainer(cfg, target):
         aux_tuple=aux_tuple,
         target=target,
         num_steps=num_steps,
-        noise_schedule=noise_schedule,
         use_lp=alg_cfg.model.use_lp,
         initial_dist=initial_dist,
     )

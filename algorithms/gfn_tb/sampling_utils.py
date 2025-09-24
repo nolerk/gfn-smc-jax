@@ -23,13 +23,13 @@ def binary_search_smoothing(
     target_ess: float = 0.0,
     tol=1e-3,
     max_steps=1000,
-) -> chex.Array:
+) -> tuple[chex.Array, float]:
     tempering = lambda x, temp: x / temp
     batch_size = log_iws.shape[0]  # type: ignore
 
     # Check if tempering is needed
     if done := ess(log_iws=log_iws) / batch_size >= target_ess:
-        return log_iws
+        return log_iws, 1.0
 
     # Search for a suitable range of search_min and search_max
     search_min = 1.0
