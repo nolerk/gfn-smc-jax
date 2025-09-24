@@ -60,4 +60,9 @@ smc:
   sampling_method: systematic
 
 mcmc:
-  use: False
+  use: True
+  chain_length: 10
+  step_size: ${target.gfn_subtb.mcmc_step_size}
+  n_burnin: 0
+  adapt: False
+  target_acceptance_rate: 0.574

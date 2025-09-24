@@ -30,12 +30,11 @@ def per_sample_rnd_pinned_brownian(
     aux_tuple,
     target,
     num_steps,
-    noise_schedule,
     use_lp,
     partial_energy,
     prior_to_target=True,
 ):
-    dim = aux_tuple
+    dim, noise_schedule = aux_tuple
     dt = 1.0 / num_steps
 
     def simulate_prior_to_target(state, per_step_input):
@@ -177,7 +176,6 @@ def per_sample_rnd_ou(
     aux_tuple,
     target,
     num_steps,
-    noise_schedule,
     use_lp,
     partial_energy,
     prior_to_target=True,
@@ -193,14 +191,11 @@ def per_sample_rnd_ou_dds(
     aux_tuple,
     target,
     num_steps,
-    noise_schedule,  # Not used here
     use_lp,
     partial_energy,
     prior_to_target=True,
 ):
-    init_std, init_log_prob, noise_scale = aux_tuple
-    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
-    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
+    init_std, init_log_prob, alpha_fn, lambda_fn = aux_tuple
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -221,14 +216,14 @@ def per_sample_rnd_ou_dds(
         log_f_bias = jnp.array(0.0)
         if partial_energy:
             # weight = jnp.sqrt((1 - alphas)[step:].prod())
-            weight = 1 - lambda_ts[step]
+            weight = 1 - lambda_fn(step)
             log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
 
         # Exponential integration of the SDE
-        sqrt_at = jnp.clip(jnp.sqrt(alphas[step]), 0, 1)
+        sqrt_at = jnp.clip(jnp.sqrt(alpha_fn(step)), 0, 1)
         sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
@@ -254,7 +249,7 @@ def per_sample_rnd_ou_dds(
         s_next = jax.lax.stop_gradient(s_next)
 
         # Compute backward SDE components
-        sqrt_at_next = jnp.clip(jnp.sqrt(alphas[step]), 0, 1)
+        sqrt_at_next = jnp.clip(jnp.sqrt(alpha_fn(step)), 0, 1)
         sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
         bwd_scale = sqrt_at_next * init_std
@@ -274,7 +269,7 @@ def per_sample_rnd_ou_dds(
         log_f_bias = jnp.array(0.0)
         if partial_energy:
             # weight = jnp.sqrt((1 - alphas)[step:].prod())
-            weight = 1 - lambda_ts[step]
+            weight = 1 - lambda_fn(step)
             log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
@@ -316,7 +311,6 @@ def rnd(
     aux_tuple,
     target,
     num_steps,
-    noise_schedule,
     use_lp,
     partial_energy,
     prior_to_target=True,
@@ -343,7 +337,7 @@ def rnd(
 
     terminal_xs, trajectories, fwd_log_probs, bwd_log_probs, log_fs = jax.vmap(
         per_sample_fn,
-        in_axes=(0, None, None, 0, None, None, None, None, None, None, None),
+        in_axes=(0, None, None, 0, None, None, None, None, None, None),
     )(
         keys,
         model_state,
@@ -352,7 +346,6 @@ def rnd(
         aux_tuple,
         target,
         num_steps,
-        noise_schedule,
         use_lp,
         partial_energy,
         prior_to_target,

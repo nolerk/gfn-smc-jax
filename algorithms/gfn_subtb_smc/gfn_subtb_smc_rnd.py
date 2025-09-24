@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Callable, Literal
 
 import distrax
@@ -6,17 +7,36 @@ import jax.numpy as jnp
 from flax.training.train_state import TrainState
 
 from algorithms.common.types import Array, RandomKey, ModelParams
-from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
 from algorithms.gfn_subtb_smc.sampling_utils import binary_search_smoothing_jit, ess
+from algorithms.gfn_subtb_smc.mcmcs import mala
 from targets.base_target import Target
-
 
 ### per-step RND functions ###
 
 
 def get_flow_bias(weight, ref_log_prob, log_prob):
     return (1 - weight) * ref_log_prob + weight * log_prob
+
+
+def get_log_f(
+    state: Array,
+    model_state: TrainState,
+    params: ModelParams,
+    step: Array,
+    num_steps: int,
+    partial_energy: bool,
+    init_log_prob_fn: Callable[[Array], Array],
+    target_log_prob_fn: Callable[[Array], Array],
+    lambda_fn: Callable[[int], float],
+):
+    _, log_f = model_state.apply_fn(
+        params, state, (step / num_steps) * jnp.ones(1), jnp.zeros(state.shape[0])
+    )  # langevin doesn't affect the _log_f
+    if partial_energy:
+        weight = 1 - lambda_fn(step)
+        log_f = log_f + get_flow_bias(weight, init_log_prob_fn(state), target_log_prob_fn(state))
+    return log_f
 
 
 def per_sample_subtraj_rnd_pinned_brownian(*args, **kwargs):
@@ -36,14 +56,11 @@ def per_sample_subtraj_rnd_ou_dds(
     target: Target,
     num_steps: int,
     timestep_tup: tuple[int, int],  # (start_step, subtraj_length)
-    noise_schedule: Callable[[int], float],  # Not used here
     use_lp: bool,
     partial_energy: bool,
     prior_to_target: bool = True,
 ):
-    init_std, init_log_prob, noise_scale = aux_tuple
-    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
-    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
+    init_std, init_log_prob_fn, alpha_fn, lambda_fn = aux_tuple
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -64,14 +81,14 @@ def per_sample_subtraj_rnd_ou_dds(
         log_f_bias = jnp.array(0.0)
         if partial_energy:
             # weight = jnp.sqrt((1 - alphas)[step:].prod())
-            weight = 1 - lambda_ts[step]
-            log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
+            weight = 1 - lambda_fn(step)
+            log_f_bias = get_flow_bias(weight, init_log_prob_fn(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
 
         # Exponential integration of the SDE
-        sqrt_at = jnp.clip(jnp.sqrt(alphas[step]), 0, 1)
+        sqrt_at = jnp.clip(jnp.sqrt(alpha_fn(step)), 0, 1)
         sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
@@ -97,7 +114,7 @@ def per_sample_subtraj_rnd_ou_dds(
         s_next = jax.lax.stop_gradient(s_next)
 
         # Compute backward SDE components
-        sqrt_at_next = jnp.clip(jnp.sqrt(alphas[step]), 0, 1)
+        sqrt_at_next = jnp.clip(jnp.sqrt(alpha_fn(step)), 0, 1)
         sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
         bwd_scale = sqrt_at_next * init_std
@@ -117,8 +134,8 @@ def per_sample_subtraj_rnd_ou_dds(
         log_f_bias = jnp.array(0.0)
         if partial_energy:
             # weight = jnp.sqrt((1 - alphas)[step:].prod())
-            weight = 1 - lambda_ts[step]
-            log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
+            weight = 1 - lambda_fn(step)
+            log_f_bias = get_flow_bias(weight, init_log_prob_fn(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -152,22 +169,21 @@ def per_sample_subtraj_rnd_ou_dds(
 
     subtrajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
 
-    def get_end_state_log_f(_: None):
-        _, _log_f = model_state.apply_fn(
-            params, end_state, (end_step / num_steps) * jnp.ones(1), jnp.zeros(end_state.shape[0])
-        )  # langevin doesn't affect the _log_f
-        if partial_energy:
-            weight = 1 - lambda_ts[end_step]
-            _log_f = _log_f + get_flow_bias(
-                weight, init_log_prob(end_state), target.log_prob(end_state)
-            )
-        return _log_f
-
     end_state_log_f = jax.lax.cond(
         jnp.equal(start_step + subtraj_length, num_steps),
-        lambda _: target.log_prob(end_state),
-        lambda _: get_end_state_log_f(_),
-        operand=None,
+        lambda end_state: target.log_prob(end_state),
+        lambda end_state: get_log_f(
+            state=end_state,
+            model_state=model_state,
+            params=params,
+            step=end_step,
+            num_steps=num_steps,
+            partial_energy=partial_energy,
+            init_log_prob_fn=init_log_prob_fn,
+            target_log_prob_fn=target.log_prob,
+            lambda_fn=lambda_fn,
+        ),
+        operand=end_state,
     )
 
     return end_state, subtrajectory, fwd_log_prob, bwd_log_prob, log_f, end_state_log_f
@@ -190,11 +206,6 @@ def resampling(
     return resampled_states, resampled_log_iws
 
 
-def mcmc(*args, **kwargs):
-    # TODO: implement MCMC
-    raise NotImplementedError("MCMC not implemented yet.")
-
-
 ### simulate ###
 def batch_simulate_subtraj_fwd(
     key: RandomKey,
@@ -207,8 +218,7 @@ def batch_simulate_subtraj_fwd(
     num_subtrajs: int,
     sampling_configs: tuple[
         Literal["pinned_brownian", "ou", "ou_dds"],  # reference_process
-        tuple,  # aux_tuple; for ou_dds, (init_std, initial_dist.log_prob, noise_scale)
-        Callable[[int], float],  # noise_schedule
+        tuple,  # aux_tuple; for ou_dds, (init_std, initial_dist.log_prob, alpha_fn, lambda_fn)
         bool,  # use_lp
         bool,  # partial_energy
     ],
@@ -218,17 +228,42 @@ def batch_simulate_subtraj_fwd(
         Callable[[RandomKey, Array, int, bool], Array],  # sampling_func
         float,  # target_ess
     ],
-    mcmc_configs: tuple[bool,],  # use
+    mcmc_configs: tuple[
+        bool,  # use
+        int,  # chain_length
+        float,  # step_size
+        int,  # n_burnin
+        bool,  # adapt
+        float,  # target_acceptance_rate
+    ],
 ):
     assert num_steps % num_subtrajs == 0
     subtraj_length = num_steps // num_subtrajs
+
+    reference_process, aux_tuple, use_lp, partial_energy = sampling_configs
+    use_resampling, resample_threshold, sampling_func, target_ess = smc_configs
+    use_mcmc, chain_length, step_size, n_burnin, adapt, target_acceptance_rate = mcmc_configs
+    init_log_prob_fn = lambda s: (
+        initial_dist.log_prob(s) if initial_dist is not None else jnp.zeros(s.shape[0])
+    )
+
+    log_f_fn_partial = None
+    if use_mcmc:
+        log_f_fn_partial = partial(
+            get_log_f,
+            model_state=model_state,
+            params=model_state.params,
+            num_steps=num_steps,
+            partial_energy=partial_energy,
+            init_log_prob_fn=init_log_prob_fn,
+            target_log_prob_fn=target.log_prob,
+            lambda_fn=aux_tuple[3],  # lambda_fn
+        )
 
     ### subtrajectory step functions ###
     def batch_simulate_subtrajectory(step_input, per_step_input):
         (states, log_iws, key_gen) = step_input
         start_step = per_step_input
-
-        reference_process, aux_tuple, noise_schedule, use_lp, partial_energy = sampling_configs
 
         ## vectorized subtrajectory sampling
         key, key_gen = jax.random.split(key_gen)
@@ -248,7 +283,7 @@ def batch_simulate_subtraj_fwd(
             end_state_log_fs,
         ) = jax.vmap(
             per_sample_fn,
-            in_axes=(0, None, None, 0, None, None, None, None, None, None, None, None),
+            in_axes=(0, None, None, 0, None, None, None, None, None, None, None),
         )(
             keys,
             model_state,
@@ -258,7 +293,6 @@ def batch_simulate_subtraj_fwd(
             target,
             num_steps,
             (start_step, subtraj_length),
-            noise_schedule,
             use_lp,
             partial_energy,
             True,  # prior_to_target
@@ -270,7 +304,6 @@ def batch_simulate_subtraj_fwd(
 
         ## Do resampling with the adaptive tempering
         key, key_gen = jax.random.split(key_gen)
-        use_resampling, resample_threshold, sampling_func, target_ess = smc_configs
         if use_resampling:
             normalized_ess = ess(log_iws=next_log_iws) / batch_size
             next_states, next_log_iws = jax.lax.cond(
@@ -282,9 +315,23 @@ def batch_simulate_subtraj_fwd(
 
         ## Do MCMC (Rejuvenation)
         key, key_gen = jax.random.split(key_gen)
-        use_mcmc = mcmc_configs[0]
         if use_mcmc:
-            next_states, next_log_iws = mcmc(key, next_states, next_log_iws)
+            next_states, new_log_fs, _ = mala(
+                key,
+                next_states,
+                partial(log_f_fn_partial, step=start_step + subtraj_length),
+                chain_length,
+                step_size,
+                n_burnin,
+                adapt,
+                target_acceptance_rate,
+            )
+            end_state_log_fs = jax.lax.cond(
+                start_step + subtraj_length == num_steps,
+                lambda _: new_log_fs,
+                lambda _: end_state_log_fs,
+                operand=None,
+            )
 
         ## Return outputs
         next_step_input = (next_states, next_log_iws, key_gen)
@@ -303,9 +350,7 @@ def batch_simulate_subtraj_fwd(
         init_states = initial_dist.sample(seed=key, sample_shape=(batch_size,))
     else:
         init_states = jnp.zeros((batch_size, target.dim))
-    init_fwd_log_probs = (
-        initial_dist.log_prob(init_states) if initial_dist is not None else jnp.zeros(batch_size)
-    )
+    init_fwd_log_probs = init_log_prob_fn(init_states)
     init_log_iws = -init_fwd_log_probs  # - jnp.log(batch_size)
     init_input = (init_states, init_log_iws, key_gen)
 

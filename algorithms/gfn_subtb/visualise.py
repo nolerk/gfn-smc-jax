@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 from flax.training.train_state import TrainState
 
-from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_subtb.gfn_subtb_rnd import get_flow_bias, ref_log_prob_pinned_brownian
 
 
@@ -17,15 +16,12 @@ def visualise_true_intermediate_distribution(
     num_steps: int,
     reference_process: str,
     noise_schedule: Callable[[float], float],
+    lambda_fn: Callable[[int], float],
     init_std: float,
-    noise_scale: float,
     target_log_prob_fn: Callable[[chex.Array], chex.Array],
     target_log_prob_t_fn: Callable[[chex.Array, float, float, float], chex.Array],
 ) -> dict:
     vis_dict = {}
-
-    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
-    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
 
     for step in plot_steps:
         t = step / num_steps
@@ -42,7 +38,7 @@ def visualise_true_intermediate_distribution(
             if t == 1.0:
                 _log_prob_t_fn = target_log_prob_fn
             else:
-                lambda_t = lambda_ts[step]
+                lambda_t = lambda_fn(step)
                 _log_prob_t_fn = partial(target_log_prob_t_fn, lambda_t=lambda_t, init_std=init_std)
         else:
             raise ValueError(f"Reference process {reference_process} not supported.")
@@ -63,14 +59,11 @@ def visualise_intermediate_distribution(
     batch_size: int,
     reference_process: str,  # for flow bias
     noise_schedule: Callable[[float], float],  # for flow bias
+    lambda_fn: Callable[[int], float],  # for flow bias
     initial_dist: distrax.Distribution | None,  # for flow bias
-    noise_scale: float,  # for flow bias
     target_log_prob_fn: Callable[[chex.Array], chex.Array],  # for flow bias
 ) -> dict:
     vis_dict = {}
-
-    alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
-    lambda_ts = 1 - (1 - alphas)[::-1].cumprod()[::-1]
 
     for step in plot_steps:
         t = step / num_steps
@@ -92,7 +85,7 @@ def visualise_intermediate_distribution(
                 raise NotImplementedError
             elif reference_process == "ou_dds":
                 assert initial_dist is not None
-                weight = 1 - lambda_ts[step]
+                weight = 1 - lambda_fn(step)
                 ref_log_prob_fn: Callable[[chex.Array], chex.Array] = initial_dist.log_prob
             else:
                 raise ValueError(f"Reference process {reference_process} not supported.")

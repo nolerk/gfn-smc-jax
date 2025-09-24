@@ -12,6 +12,7 @@ import wandb
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
+from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn_joint, loss_fn_subtb, loss_fn_tb, rnd
 from algorithms.gfn_subtb.visualise import (
     visualise_intermediate_distribution,
@@ -40,16 +41,23 @@ def gfn_subtb_trainer(cfg, target):
     target_xs = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
     # Define initial and target density
+    lambda_fn = lambda _: 1.0
     if reference_process == "pinned_brownian":  # Following PIS
         initial_dist = None  # actually, the initial distribution is Dirac delta at the origin
-        aux_tuple = (dim,)
+        aux_tuple = (dim, noise_schedule)
     elif reference_process in ["ou", "ou_dds"]:  # DIS or DDS
         initial_dist = distrax.MultivariateNormalDiag(
             jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
         )
         aux_tuple = (alg_cfg.init_std, initial_dist.log_prob)
         if reference_process == "ou_dds":
-            aux_tuple = (*aux_tuple, alg_cfg.noise_scale)  # DDS
+            alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=alg_cfg.noise_scale)
+            lambdas = 1 - (1 - alphas)[::-1].cumprod()[::-1]
+            alpha_fn = lambda step: alphas[step]
+            lambda_fn = lambda step: lambdas[step]
+            aux_tuple = (*aux_tuple, alpha_fn, lambda_fn)
+        else:
+            aux_tuple = (*aux_tuple, noise_schedule)
     else:
         raise ValueError(f"Reference process {reference_process} not supported.")
 
@@ -77,7 +85,6 @@ def gfn_subtb_trainer(cfg, target):
         aux_tuple=aux_tuple,
         target=target,
         num_steps=num_steps,
-        noise_schedule=noise_schedule,
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
         initial_dist=initial_dist,
@@ -168,8 +175,8 @@ def gfn_subtb_trainer(cfg, target):
             num_steps,
             reference_process,
             noise_schedule,
+            lambda_fn,
             alg_cfg.init_std,
-            alg_cfg.noise_scale,
             target.log_prob,
             target.log_prob_t,
         )
@@ -304,8 +311,8 @@ def gfn_subtb_trainer(cfg, target):
                     batch_size,
                     reference_process,
                     noise_schedule,
+                    lambda_fn,
                     initial_dist,
-                    alg_cfg.noise_scale,
                     target.log_prob,
                 )
                 logger.update(vis_dict)
