@@ -6,7 +6,6 @@ import jax.numpy as jnp
 from flax.training.train_state import TrainState
 
 from algorithms.common.types import Array, RandomKey, ModelParams
-from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
 
 
@@ -509,7 +508,7 @@ def loss_fn_joint(
     n_chunks: int = 1,
     subtb_weight: float = 1.0,
     invtemp: float = 1.0,
-    huber_delta: float = 1e5,
+    huber_delta: float = 1e4,
     logr_clip: float = -1e5,
 ):
     (

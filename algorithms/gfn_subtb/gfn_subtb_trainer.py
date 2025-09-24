@@ -99,7 +99,7 @@ def gfn_subtb_trainer(cfg, target):
         elif loss_type in ["tb_subtb", "lv_subtb"]:
             loss_fn_base = partial(
                 loss_fn_joint,
-                loss_type=loss_type[:2],  # tb or lv
+                loss_type=loss_type,  # tb or lv
                 n_chunks=n_chunks,
                 subtb_weight=alg_cfg.subtb_weight,
             )
@@ -191,7 +191,6 @@ def gfn_subtb_trainer(cfg, target):
     ### Prefill phase
     if use_buffer and buffer_cfg.prefill_steps > 0:
         # Define the function to be JIT-ed for FWD pass
-        assert buffer is not None and buffer_state is not None
         for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
             _, (trajectories, log_pbs_over_pfs, log_rewards, tb_losses, subtb_losses) = (
@@ -224,7 +223,6 @@ def gfn_subtb_trainer(cfg, target):
 
             # Add samples to buffer
             if use_buffer:
-                assert buffer is not None and buffer_state is not None
                 buffer_state = buffer.add(
                     buffer_state,
                     trajectories[:, -1],
@@ -235,8 +233,6 @@ def gfn_subtb_trainer(cfg, target):
 
         # Off-policy training with buffer samples
         else:
-            assert buffer is not None and buffer_state is not None
-
             # Sample terminal states from buffer
             key, key_gen = jax.random.split(key_gen)
             samples, log_rewards, indices = buffer.sample(buffer_state, key, batch_size)
@@ -269,7 +265,6 @@ def gfn_subtb_trainer(cfg, target):
 
         if alternate and it > 0 and it % alg_cfg.learn_flow_every == 0:
             print(f"Learning flow at iteration {it}")
-            assert buffer is not None and buffer_state is not None
 
             for _ in range(alg_cfg.learn_flow_iters):
                 key, key_gen = jax.random.split(key_gen)
@@ -319,7 +314,6 @@ def gfn_subtb_trainer(cfg, target):
 
             # Evaluate buffer samples
             if use_buffer:
-                assert buffer is not None and buffer_state is not None
                 from eval import discrepancies
 
                 buffer_xs, _, _ = buffer.sample(buffer_state, key, cfg.eval_samples)

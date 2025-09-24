@@ -114,7 +114,6 @@ def gfn_tb_trainer(cfg, target):
             rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
             return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
 
-        assert buffer is not None and buffer_state is not None
         for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
             _, (xs, log_pbs_over_pfs, log_rewards, losses) = loss_fwd_nograd_fn(
@@ -141,15 +140,12 @@ def gfn_tb_trainer(cfg, target):
 
             # Add samples to buffer
             if use_buffer:
-                assert buffer is not None and buffer_state is not None
                 buffer_state = buffer.add(
                     buffer_state, xs, (log_pbs_over_pfs + log_rewards), log_rewards, losses
                 )
 
         # Off-policy training with buffer samples
         else:
-            assert buffer is not None and buffer_state is not None
-
             # Sample terminal states from buffer
             key, key_gen = jax.random.split(key_gen)
             samples, log_rewards, indices = buffer.sample(buffer_state, key, batch_size)
@@ -181,7 +177,6 @@ def gfn_tb_trainer(cfg, target):
 
             # Evaluate buffer samples
             if use_buffer:
-                assert buffer is not None and buffer_state is not None
                 from eval import discrepancies
 
                 buffer_xs, _, _ = buffer.sample(buffer_state, key, cfg.eval_samples)

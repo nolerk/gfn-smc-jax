@@ -60,7 +60,7 @@ smc:
   sampling_method: systematic
 
 mcmc:
-  use: True
+  use: False
   chain_length: 10
   step_size: ${target.gfn_subtb.mcmc_step_size}
   n_burnin: 0

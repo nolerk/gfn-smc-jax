@@ -264,7 +264,7 @@ def batch_simulate_subtraj_fwd(
 
     ### subtrajectory step functions ###
     def batch_simulate_subtrajectory(step_input, per_step_input):
-        (states, log_iws, key_gen) = step_input
+        states, log_iws, key_gen = step_input
         start_step = per_step_input
 
         ## vectorized subtrajectory sampling
@@ -364,7 +364,7 @@ def batch_simulate_subtraj_fwd(
         batch_simulate_subtrajectory, init_input, per_subtraj_inputs
     )
 
-    final_states, final_iws, _ = final_outputs
+    final_states, final_log_iws, _ = final_outputs
     # final_states.shape == (batch_size, dim)
     # final_iws.shape == (batch_size,)
     subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, end_state_log_fs = per_subtraj_outputs
@@ -374,7 +374,7 @@ def batch_simulate_subtraj_fwd(
 
     return (
         final_states,
-        final_iws,
+        final_log_iws,
         subtrajectories,
         fwd_log_probs,
         bwd_log_probs,
