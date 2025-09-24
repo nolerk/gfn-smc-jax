@@ -30,13 +30,20 @@ def get_log_f(
     target_log_prob_fn: Callable[[Array], Array],
     lambda_fn: Callable[[int], float],
 ):
-    _, log_f = model_state.apply_fn(
-        params, state, (step / num_steps) * jnp.ones(1), jnp.zeros(state.shape[0])
-    )  # langevin doesn't affect the _log_f
-    if partial_energy:
-        weight = 1 - lambda_fn(step)
-        log_f = log_f + get_flow_bias(weight, init_log_prob_fn(state), target_log_prob_fn(state))
-    return log_f
+    def get_log_f_intermediate(state):
+        _, log_f = model_state.apply_fn(
+            params, state, (step / num_steps) * jnp.ones(1), jnp.zeros(state.shape[0])
+        )  # langevin doesn't affect the _log_f
+        if partial_energy:
+            weight = 1 - lambda_fn(step)
+            log_f = log_f + get_flow_bias(
+                weight, init_log_prob_fn(state), target_log_prob_fn(state)
+            )
+        return log_f
+
+    return jax.lax.cond(
+        jnp.equal(step, num_steps), target_log_prob_fn, get_log_f_intermediate, operand=state
+    )
 
 
 def per_sample_subtraj_rnd_pinned_brownian(*args, **kwargs):
@@ -169,23 +176,17 @@ def per_sample_subtraj_rnd_ou_dds(
 
     subtrajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
 
-    end_state_log_f = jax.lax.cond(
-        jnp.equal(start_step + subtraj_length, num_steps),
-        lambda end_state: target.log_prob(end_state),
-        lambda end_state: get_log_f(
-            state=end_state,
-            model_state=model_state,
-            params=params,
-            step=end_step,
-            num_steps=num_steps,
-            partial_energy=partial_energy,
-            init_log_prob_fn=init_log_prob_fn,
-            target_log_prob_fn=target.log_prob,
-            lambda_fn=lambda_fn,
-        ),
-        operand=end_state,
+    end_state_log_f = get_log_f(
+        state=end_state,
+        model_state=model_state,
+        params=params,
+        step=end_step,
+        num_steps=num_steps,
+        partial_energy=partial_energy,
+        init_log_prob_fn=init_log_prob_fn,
+        target_log_prob_fn=target.log_prob,
+        lambda_fn=lambda_fn,
     )
-
     return end_state, subtrajectory, fwd_log_prob, bwd_log_prob, log_f, end_state_log_f
 
 
@@ -249,6 +250,7 @@ def batch_simulate_subtraj_fwd(
 
     log_f_fn_partial = None
     if use_mcmc:
+        lambda_fn = aux_tuple[3] if reference_process == "ou_dds" else lambda step: step / num_steps
         log_f_fn_partial = partial(
             get_log_f,
             model_state=model_state,
@@ -257,7 +259,7 @@ def batch_simulate_subtraj_fwd(
             partial_energy=partial_energy,
             init_log_prob_fn=init_log_prob_fn,
             target_log_prob_fn=target.log_prob,
-            lambda_fn=aux_tuple[3],  # lambda_fn
+            lambda_fn=lambda_fn,
         )
 
     ### subtrajectory step functions ###

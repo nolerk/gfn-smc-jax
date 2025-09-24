@@ -30,20 +30,26 @@ def mala(
         A tuple containing the generated samples (num_chains, chain_length, dim),
         the final states (num_chains, dim), and their log_reward (num_chains,).
     """
+
     # Compute value and gradient function
-    grad_log_prob_fn = jax.value_and_grad(lambda x: jax.lax.stop_gradient(log_prob_fn(x)))
+    def grad_log_prob_fn(x):
+        log_prob, grad_log_prob = jax.value_and_grad(log_prob_fn)(jax.lax.stop_gradient(x))
+        log_prob = jax.lax.stop_gradient(log_prob)
+        grad_log_prob = jax.lax.stop_gradient(grad_log_prob)
+        return log_prob, grad_log_prob
+
     num_chains = initial_positions.shape[0]
 
     def mala_kernel(state, per_step_input):
+        """Defines the MALA transition for a single chain."""
         key_gen, position, log_prob, grad_log_prob, step_size, adapt = state
         i = per_step_input
-        """Defines the MALA transition for a single chain."""
 
         # 1. Propose a new state using the standard parameterization
         key_proposal, key_gen = jax.random.split(key_gen)
         noise = jax.random.normal(key_proposal, shape=position.shape)
         proposal_mean = position + step_size * grad_log_prob
-        proposal = proposal_mean + jnp.sqrt(2 * step_size) * noise
+        proposal = jax.lax.stop_gradient(proposal_mean + jnp.sqrt(2 * step_size) * noise)
         log_q_forward = -0.25 * jnp.sum((proposal - proposal_mean) ** 2) / step_size
 
         # 2. Calculate acceptance probability
