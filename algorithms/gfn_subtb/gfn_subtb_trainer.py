@@ -113,13 +113,6 @@ def gfn_subtb_trainer(cfg, target):
         rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
-    # Define the function to be JIT-ed for FWD pass without gradients
-    @jax.jit
-    def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
-        # prior_to_target=True, terminal_xs=None
-        rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
-        return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
-
     # Define the function to be JIT-ed for BWD pass
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
@@ -190,6 +183,12 @@ def gfn_subtb_trainer(cfg, target):
 
     ### Prefill phase
     if use_buffer and buffer_cfg.prefill_steps > 0:
+        # Define the function to be JIT-ed for FWD pass without gradients
+        @jax.jit
+        def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
+            rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
+            return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
+
         # Define the function to be JIT-ed for FWD pass
         for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)

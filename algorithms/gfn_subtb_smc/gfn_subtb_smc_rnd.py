@@ -81,13 +81,11 @@ def per_sample_subtraj_rnd_ou_dds(
         langevin = jnp.zeros(s.shape[0])
         if use_lp:
             log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
         elif partial_energy:
             log_prob = target.log_prob(s)
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            # weight = jnp.sqrt((1 - alphas)[step:].prod())
             weight = 1 - lambda_fn(step)
             log_f_bias = get_flow_bias(weight, init_log_prob_fn(s), log_prob)
 
@@ -134,13 +132,11 @@ def per_sample_subtraj_rnd_ou_dds(
         langevin = jnp.zeros(s.shape[0])
         if use_lp:
             log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
         elif partial_energy:
             log_prob = target.log_prob(s)
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            # weight = jnp.sqrt((1 - alphas)[step:].prod())
             weight = 1 - lambda_fn(step)
             log_f_bias = get_flow_bias(weight, init_log_prob_fn(s), log_prob)
 
@@ -156,7 +152,6 @@ def per_sample_subtraj_rnd_ou_dds(
         per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(key)
     start_step, subtraj_length = timestep_tup
     end_step = start_step + subtraj_length
     if prior_to_target:
@@ -403,9 +398,6 @@ def loss_fn_subtraj(
         end_state_log_fs,
         init_fwd_log_probs,
     ) = simulate_subtraj(key, model_state, params)
-
-    n_subtrajs, _, subtraj_length, _ = subtrajectories.shape
-    T = n_subtrajs * subtraj_length
 
     log_rewards = end_state_log_fs[-1, :]
     log_rewards = jnp.where(

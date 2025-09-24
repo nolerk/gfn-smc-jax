@@ -7,7 +7,6 @@ import numpyro.distributions as npdist
 from flax.training.train_state import TrainState
 
 from algorithms.common.types import Array, RandomKey, ModelParams
-from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 
 
 def sample_kernel(key_gen, mean, scale):
@@ -29,11 +28,10 @@ def per_sample_rnd_pinned_brownian(
     aux_tuple,
     target,
     num_steps,
-    noise_schedule,
     use_lp,
     prior_to_target=True,
 ):
-    dim = aux_tuple
+    dim, noise_schedule = aux_tuple
     dt = 1.0 / num_steps
 
     def simulate_prior_to_target(state, per_step_input):
@@ -49,7 +47,7 @@ def per_sample_rnd_pinned_brownian(
         # Compute SDE components
         if use_lp:
             langevin = jax.lax.stop_gradient(jax.grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
+
         else:
             langevin = jnp.zeros(dim)
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
@@ -108,7 +106,6 @@ def per_sample_rnd_pinned_brownian(
         # Compute forward SDE components
         if use_lp:
             langevin = jax.lax.stop_gradient(jax.grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
         else:
             langevin = jnp.zeros(dim)
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
@@ -122,7 +119,6 @@ def per_sample_rnd_pinned_brownian(
         per_step_output = (s, fwd_log_prob, bwd_log_prob)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(key)
     if prior_to_target:
         init_x = input_state
         aux = (init_x, key)
@@ -147,7 +143,6 @@ def per_sample_rnd_ou(
     aux_tuple,
     target,
     num_steps,
-    noise_schedule,
     use_lp,
     prior_to_target=True,
 ):
@@ -162,12 +157,10 @@ def per_sample_rnd_ou_dds(
     aux_tuple,
     target,
     num_steps,
-    noise_schedule,  # Not used here
     use_lp,
     prior_to_target=True,
 ):
-    init_std, init_log_prob, noise_scale = aux_tuple
-    betas = cos_sq_fn_step_scheme(num_steps, noise_scale=noise_scale)
+    init_std, alpha_fn = aux_tuple
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -179,13 +172,13 @@ def per_sample_rnd_ou_dds(
         # Compute forward SDE components
         if use_lp:
             langevin = jax.lax.stop_gradient(jax.grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
+
         else:
             langevin = jnp.zeros(s.shape[0])
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
 
         # Exponential integration of the SDE
-        sqrt_at = jnp.clip(jnp.sqrt(betas[step]), 0, 1)
+        sqrt_at = jnp.clip(jnp.sqrt(alpha_fn(step)), 0, 1)
         sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at * s + sqrt_at**2 * model_output
         fwd_scale = sqrt_at * init_std
@@ -194,8 +187,6 @@ def per_sample_rnd_ou_dds(
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
 
         # Compute backward SDE components
-        # sqrt_at_next = jnp.clip(jnp.sqrt(betas[step + 1]), 0, 1)  # shouldn't we use step + 1?
-        # sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at * s_next
         bwd_scale = sqrt_at * init_std
         bwd_log_prob = log_prob_kernel(s, bwd_mean, bwd_scale)
@@ -213,7 +204,7 @@ def per_sample_rnd_ou_dds(
         s_next = jax.lax.stop_gradient(s_next)
 
         # Compute backward SDE components
-        sqrt_at_next = jnp.clip(jnp.sqrt(betas[step]), 0, 1)  # shouldn't we use step + 1?
+        sqrt_at_next = jnp.clip(jnp.sqrt(alpha_fn(step)), 0, 1)
         sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
         bwd_mean = sqrt_1_minus_at_next * s_next
         bwd_scale = sqrt_at_next * init_std
@@ -224,13 +215,10 @@ def per_sample_rnd_ou_dds(
         # Compute forward SDE components
         if use_lp:
             langevin = jax.lax.stop_gradient(jax.grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
         else:
             langevin = jnp.zeros(s.shape[0])
         model_output, _ = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
 
-        # sqrt_at = jnp.clip(jnp.sqrt(betas[step]), 0, 1)
-        # sqrt_1_minus_at = jnp.sqrt(1 - sqrt_at**2)
         fwd_mean = sqrt_1_minus_at_next * s + sqrt_at_next**2 * model_output
         fwd_scale = sqrt_at_next * init_std
         fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
@@ -240,7 +228,6 @@ def per_sample_rnd_ou_dds(
         per_step_output = (s, fwd_log_prob, bwd_log_prob)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(key)
     if prior_to_target:
         init_x = input_state
         aux = (init_x, key)
@@ -267,7 +254,6 @@ def rnd(
     aux_tuple,
     target,
     num_steps,
-    noise_schedule,
     use_lp,
     prior_to_target=True,
     initial_dist: distrax.Distribution | None = None,
@@ -292,7 +278,7 @@ def rnd(
 
     terminal_xs, trajectories, fwd_log_probs, bwd_log_probs = jax.vmap(
         per_sample_fn,
-        in_axes=(0, None, None, 0, None, None, None, None, None, None),
+        in_axes=(0, None, None, 0, None, None, None, None, None),
     )(
         keys,
         model_state,
@@ -301,7 +287,6 @@ def rnd(
         aux_tuple,
         target,
         num_steps,
-        noise_schedule,
         use_lp,
         prior_to_target,
     )

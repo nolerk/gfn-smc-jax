@@ -51,7 +51,6 @@ def per_sample_rnd_pinned_brownian(
         langevin = jnp.zeros(dim)
         if use_lp:
             log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
         elif partial_energy:
             log_prob = target.log_prob(s)
 
@@ -124,7 +123,6 @@ def per_sample_rnd_pinned_brownian(
         langevin = jnp.zeros(dim)
         if use_lp:
             log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
         elif partial_energy:
             log_prob = target.log_prob(s)
 
@@ -150,7 +148,6 @@ def per_sample_rnd_pinned_brownian(
         per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(key)
     if prior_to_target:
         init_x = input_state
         aux = (init_x, key)
@@ -208,13 +205,11 @@ def per_sample_rnd_ou_dds(
         langevin = jnp.zeros(s.shape[0])
         if use_lp:
             log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
         elif partial_energy:
             log_prob = target.log_prob(s)
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            # weight = jnp.sqrt((1 - alphas)[step:].prod())
             weight = 1 - lambda_fn(step)
             log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
 
@@ -261,13 +256,11 @@ def per_sample_rnd_ou_dds(
         langevin = jnp.zeros(s.shape[0])
         if use_lp:
             log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-            # langevin = langevin * t  # ?
         elif partial_energy:
             log_prob = target.log_prob(s)
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            # weight = jnp.sqrt((1 - alphas)[step:].prod())
             weight = 1 - lambda_fn(step)
             log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
 
@@ -283,7 +276,6 @@ def per_sample_rnd_ou_dds(
         per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(key)
     if prior_to_target:
         init_x = input_state
         aux = (init_x, key)

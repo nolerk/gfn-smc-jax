@@ -12,6 +12,7 @@ import wandb
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
+from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_tb.buffer import build_terminal_state_buffer
 from algorithms.gfn_tb.gfn_tb_rnd import rnd, loss_fn
 from algorithms.gfn_tb.utils import get_invtemp
@@ -34,16 +35,16 @@ def gfn_tb_trainer(cfg, target):
     target_xs = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
     # Define initial and target density
-    if reference_process == "pinned_brownian":  # Following PIS
+    if reference_process in ["pinned_brownian", "ou"]:
         initial_dist = None
-        aux_tuple = (dim,)
-    elif reference_process in ["ou", "ou_dds"]:  # DIS or DDS
+        aux_tuple = (dim, noise_schedule)
+    elif reference_process == "ou_dds":
         initial_dist = distrax.MultivariateNormalDiag(
             jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
         )
-        aux_tuple = (alg_cfg.init_std, initial_dist.log_prob)
-        if reference_process == "ou_dds":
-            aux_tuple = (*aux_tuple, alg_cfg.noise_scale)  # DDS
+        alphas = cos_sq_fn_step_scheme(num_steps, noise_scale=alg_cfg.noise_scale)
+        alpha_fn = lambda step: alphas[step]
+        aux_tuple = (alg_cfg.init_std, alpha_fn)
     else:
         raise ValueError(f"Reference process {reference_process} not supported.")
 
@@ -110,7 +111,6 @@ def gfn_tb_trainer(cfg, target):
         # Define the function to be JIT-ed for FWD pass
         @partial(jax.jit)
         def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
-            # prior_to_target=True, terminal_xs=None
             rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
             return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
 
@@ -164,7 +164,7 @@ def gfn_tb_trainer(cfg, target):
                 )
 
         if cfg.use_wandb:
-            wandb.log({"loss": jnp.mean(losses)}, step=it)
+            wandb.log({"tb_loss": jnp.mean(losses)}, step=it)
             if loss_type == "tb":
                 wandb.log({"logZ_learned": model_state.params["params"]["logZ"]}, step=it)
 
