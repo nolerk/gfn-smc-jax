@@ -18,7 +18,7 @@ from algorithms.gfn_subtb.visualise import (
     visualise_true_intermediate_distribution,
 )
 from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn_joint, loss_fn_subtb, rnd
-from algorithms.gfn_subtb_smc.gfn_subtb_smc_rnd import batch_simulate_subtraj_fwd
+from algorithms.gfn_subtb_smc.gfn_subtb_smc_rnd import batch_simulate_fwd_subtrajectories
 from algorithms.gfn_tb.buffer import build_terminal_state_buffer
 from algorithms.gfn_tb.sampling_utils import get_sampling_func
 from algorithms.gfn_tb.utils import get_invtemp
@@ -83,8 +83,8 @@ def gfn_subtb_smc_trainer(cfg, target):
     model_state = init_model(key, dim, alg_cfg)
 
     # Define the function to simulate subtrajectories with SMC & MCMC
-    simulate_subtraj_fwd_partial = partial(
-        batch_simulate_subtraj_fwd,
+    simulate_fwd_subtraj_partial = partial(
+        batch_simulate_fwd_subtrajectories,
         batch_size=batch_size,
         initial_dist=initial_dist,
         target=target,
@@ -112,10 +112,10 @@ def gfn_subtb_smc_trainer(cfg, target):
             mcmc_cfg.target_acceptance_rate,
         ),
     )
-    simulate_subtraj_fwd_jit = jax.jit(simulate_subtraj_fwd_partial)
+    simulate_fwd_subtraj_jit = jax.jit(simulate_fwd_subtraj_partial)
 
     # Define the function to simulate the whole trajectory
-    simulate_traj_fwd_partial = partial(
+    simulate_fwd_traj_partial = partial(
         rnd,
         reference_process=reference_process,
         aux_tuple=aux_tuple,
@@ -143,7 +143,7 @@ def gfn_subtb_smc_trainer(cfg, target):
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
     def loss_fwd_grad_fn(key, model_state, params, invtemp=1.0):
-        rnd_p = partial(simulate_traj_fwd_partial, batch_size=batch_size, prior_to_target=True)
+        rnd_p = partial(simulate_fwd_traj_partial, batch_size=batch_size, prior_to_target=True)
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
     # Define the function to be JIT-ed for BWD pass
@@ -152,7 +152,7 @@ def gfn_subtb_smc_trainer(cfg, target):
     def loss_bwd_grad_fn(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
         # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
-            simulate_traj_fwd_partial,
+            simulate_fwd_traj_partial,
             batch_size=batch_size,
             prior_to_target=False,
             terminal_xs=terminal_xs,
@@ -162,7 +162,7 @@ def gfn_subtb_smc_trainer(cfg, target):
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
-        partial(simulate_traj_fwd_partial, batch_size=cfg.eval_samples), target, target_xs, cfg
+        partial(simulate_fwd_traj_partial, batch_size=cfg.eval_samples), target, target_xs, cfg
     )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
@@ -196,7 +196,7 @@ def gfn_subtb_smc_trainer(cfg, target):
         # Define the function to be JIT-ed for FWD pass
         for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
-            final_states, final_log_iws, _, _, _, _, end_state_log_fs, _ = simulate_subtraj_fwd_jit(
+            final_states, final_log_iws, _, _, _, _, end_state_log_fs, _ = simulate_fwd_subtraj_jit(
                 key, model_state, model_state.params
             )
 
@@ -231,20 +231,25 @@ def gfn_subtb_smc_trainer(cfg, target):
                     trajectories[:, -1],
                     (log_pbs_over_pfs.sum(-1) + log_rewards),
                     log_rewards,
-                    subtb_losses.mean(-1) if loss_type == "subtb" else tb_losses,
+                    jnp.zeros_like(log_rewards),  # loss-prioritized buffer should not be used here
                 )
 
             # Sample terminal states using smc and store in buffer
             if alg_cfg.smc.use and use_buffer:
-                key, key_gen = jax.random.split(key_gen)
-                samples, final_log_iws, _, _, _, _, end_state_log_fs, _ = simulate_subtraj_fwd_jit(
-                    key, model_state, model_state.params
-                )
-                log_rewards = end_state_log_fs[-1, :]
+                for _ in range(alg_cfg.smc.repeat_iter):
+                    key, key_gen = jax.random.split(key_gen)
+                    samples, final_log_iws, _, _, _, _, end_state_log_fs, _ = (
+                        simulate_fwd_subtraj_jit(key, model_state, model_state.params)
+                    )
+                    log_rewards = end_state_log_fs[-1, :]
 
-                buffer_state = buffer.add(
-                    buffer_state, samples, final_log_iws, log_rewards, jnp.zeros_like(final_log_iws)
-                )
+                    buffer_state = buffer.add(
+                        buffer_state,
+                        samples,
+                        final_log_iws,
+                        log_rewards,
+                        jnp.zeros_like(final_log_iws),
+                    )
 
         # Off-policy training with buffer samples
         else:
@@ -266,7 +271,7 @@ def gfn_subtb_smc_trainer(cfg, target):
                     indices,
                     (log_pbs_over_pfs.sum(-1) + log_rewards),
                     log_rewards,
-                    subtb_losses.mean(-1) if loss_type == "subtb" else tb_losses,
+                    jnp.zeros_like(log_rewards),  # loss-prioritized buffer should not be used here
                 )
 
         if cfg.use_wandb:

@@ -200,7 +200,7 @@ def resampling(
 
 
 ### simulate ###
-def batch_simulate_subtraj_fwd(
+def batch_simulate_fwd_subtrajectories(
     key: RandomKey,
     model_state: TrainState,
     params: ModelParams,

@@ -17,33 +17,33 @@ fn:
 # ----------------------------------------
 
 mfvi: # Gaussian Mean Field Variational Inference
-  init_std: 40.
+  init_std: 20.
   step_size: 1e-2
 
 gmmvi: # Gaussian Mixture Model Variational Inference
-  init_std: 40.
+  init_std: 20.
 
 nfvi: # Normalizing Flow Variational Inference
-  init_std: 40.
+  init_std: 20.
   step_size: 1e-3
 
 hmc:  # Hamilton Monte Carlo
   hmc_step_size: [0.2, 0.2]
 
 smc: # Sequential Monte Carlo Sampler
-  init_std: 40.
+  init_std: 20.
 
 smc_advanced:
-  init_std: 40.
+  init_std: 20.
   target_ess: 0.99
   hmc_step_size: [0.01, 0.001]
 
 flow_transport: # Flow Transport Methods (AFT/CRAFT)
-  init_std: 40.
+  init_std: 20.
   step_size: 1e-4
 
 fab: # Flow Annealed Importance Sampling Bootstrap
-  init_std: 40.
+  init_std: 20.
   step_size: 1e-4
 
 ud_langevin:  # Underdamped Langevin Methods (UHA/LDVI)
@@ -57,50 +57,50 @@ od_langevin:  # Overdamped Langevin Methods (ULA/MCD)
   step_size: 5e-4
 
 cmcd:  # Controlled Monte Carlo Diffusions
-  max_diffusion: 10.
-  init_std: 40.
+  max_diffusion: 5.
+  init_std: 20.
   step_size: 5e-4
 
 scld:
   max_diffusion: 20.
-  init_std: 40.
+  init_std: 20.
   step_size: 1e-3
   annealing_step_size: 1e-3
   n_sub_traj: 4
 
 pis: # Path Integral Sampler
-  max_diffusion: 40.
+  max_diffusion: 20.
   step_size: 5e-4
 
 dis: # Time-reversed Diffusion Sampler
-  max_diffusion: 10.
-  init_std: 40.
+  max_diffusion: 5.
+  init_std: 20.
   step_size: 5e-4
 
 dds: # Denoising Diffusion Sampler
-  init_std: 40.
+  init_std: 20.
   step_size: 5e-4
 
 gbs:  # General Bridge Sampler
-  max_diffusion: 10.
-  init_std: 40.
+  max_diffusion: 5.
+  init_std: 20.
   step_size: 5e-4
 
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
-  init_std: 40.  # for ou or ou_dss
-  max_diffusion: 40.  # for pinned_brownian or ou
+  init_std: 20.  # for ou or ou_dss
+  max_diffusion: 20.  # for pinned_brownian or ou
   step_size: 1e-3
   logZ_step_size: 1e-1
   init_logZ: 0.
 
 gfn_subtb: # Sub-Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
-  init_std: 40.  # for ou or ou_dds
-  max_diffusion: 40.  # for pinned_brownian or ou
+  init_std: 20.  # for ou or ou_dds
+  max_diffusion: 20.  # for pinned_brownian or ou
   step_size: 1e-3
   logflow_step_size: 1e-3
-  betas_step_size: 1e-1
+  betas_step_size: 1e-3
   logZ_step_size: 1e-1  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2

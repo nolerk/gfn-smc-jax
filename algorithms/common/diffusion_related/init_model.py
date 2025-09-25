@@ -18,6 +18,8 @@ def pisgrad_net_label_map(path, _):
         return "logflow_optim"
     elif "logZ" in path:
         return "logZ_optim"
+    elif "betas" in path:
+        return "betas_optim"
     else:
         return "network_optim"
 
