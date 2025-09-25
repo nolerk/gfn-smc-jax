@@ -386,8 +386,8 @@ def loss_fn_subtraj(
     params: ModelParams,
     simulate_subtraj: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
     invtemp: float = 1.0,
-    huber_delta: float = 1e5,
     logr_clip: float = -1e5,
+    huber_delta: float | None = None,
 ):
     (
         final_states,
@@ -418,11 +418,14 @@ def loss_fn_subtraj(
     # The below is equivalent to the above lines but avoids numerical instability.
     subtb_discrepancy = log_fs[:, :, 0] + log_pfs_over_pbs.sum(-1) - log_fs[:, :, -1]
 
-    subtb_losses = jnp.where(
-        jnp.abs(subtb_discrepancy) <= huber_delta,
-        jnp.square(subtb_discrepancy),
-        huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
-    )
+    if huber_delta is not None:
+        subtb_losses = jnp.where(
+            jnp.abs(subtb_discrepancy) <= huber_delta,
+            jnp.square(subtb_discrepancy),
+            huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
+        )
+    else:
+        subtb_losses = jnp.square(subtb_discrepancy)
 
     return jnp.mean(subtb_losses.mean(0)), (
         final_states,

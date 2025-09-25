@@ -398,8 +398,8 @@ def loss_fn_tb(
     rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
     loss_type: Literal["tb", "lv"] = "tb",
     invtemp: float = 1.0,
-    huber_delta: float = 1e5,
     logr_clip: float = -1e5,
+    huber_delta: float | None = None,
 ):
     (
         _,
@@ -422,11 +422,14 @@ def loss_fn_tb(
     else:  # loss_type == "lv"
         losses = log_ratio - jnp.mean(log_ratio)
 
-    losses = jnp.where(
-        jnp.abs(losses) <= huber_delta,
-        jnp.square(losses),
-        huber_delta * jnp.abs(losses) - 0.5 * huber_delta**2,
-    )
+    if huber_delta is not None:
+        losses = jnp.where(
+            jnp.abs(losses) <= huber_delta,
+            jnp.square(losses),
+            huber_delta * jnp.abs(losses) - 0.5 * huber_delta**2,
+        )
+    else:
+        losses = jnp.square(losses)
 
     return jnp.mean(losses), (
         trajectories,
@@ -444,8 +447,8 @@ def loss_fn_subtb(
     rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
     n_chunks: int,
     invtemp: float = 1.0,
-    huber_delta: float = 1e5,
     logr_clip: float = -1e5,
+    huber_delta: float | None = None,
     flow_only: bool = False,  # if True, only optimize flow
 ):
     (
@@ -494,11 +497,14 @@ def loss_fn_subtb(
     # subtb_discrepancy = subtb_discrepancy2
     subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
 
-    subtb_losses = jnp.where(
-        jnp.abs(subtb_discrepancy) <= huber_delta,
-        jnp.square(subtb_discrepancy),
-        huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
-    )
+    if huber_delta is not None:
+        subtb_losses = jnp.where(
+            jnp.abs(subtb_discrepancy) <= huber_delta,
+            jnp.square(subtb_discrepancy),
+            huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
+        )
+    else:
+        subtb_losses = jnp.square(subtb_discrepancy)
 
     log_pfs_over_pbs = log_pfs_over_pbs.at[:, 0].set(log_pfs_over_pbs[:, 0] + init_fwd_log_probs)
     return jnp.mean(subtb_losses.mean(-1)), (
@@ -519,8 +525,8 @@ def loss_fn_joint(
     n_chunks: int = 1,
     subtb_weight: float = 1.0,
     invtemp: float = 1.0,
-    huber_delta: float = 1e4,
     logr_clip: float = -1e5,
+    huber_delta: float | None = None,
 ):
     (
         _,
@@ -555,11 +561,14 @@ def loss_fn_joint(
         else:  # loss_type == "lv_subtb"
             tb_losses = log_ratio - jnp.mean(log_ratio)
 
-        tb_losses = jnp.where(
-            jnp.abs(tb_losses) <= huber_delta,
-            jnp.square(tb_losses),
-            huber_delta * jnp.abs(tb_losses) - 0.5 * huber_delta**2,
-        )
+        if huber_delta is not None:
+            tb_losses = jnp.where(
+                jnp.abs(tb_losses) <= huber_delta,
+                jnp.square(tb_losses),
+                huber_delta * jnp.abs(tb_losses) - 0.5 * huber_delta**2,
+            )
+        else:
+            tb_losses = jnp.square(tb_losses)
 
     log_fs = log_fs.at[:, 0].set(logZ + init_fwd_log_probs)
     log_fs = log_fs.at[:, -1].set(log_rewards * invtemp)
@@ -583,11 +592,15 @@ def loss_fn_joint(
     # subtb_discrepancy = subtb_discrepancy2
     subtb_discrepancy = jnp.concatenate([subtb_discrepancy1, subtb_discrepancy2], axis=1)
 
-    subtb_losses = jnp.where(
-        jnp.abs(subtb_discrepancy) <= huber_delta,
-        jnp.square(subtb_discrepancy),
-        huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
-    )
+    if huber_delta is not None:
+        subtb_losses = jnp.where(
+            jnp.abs(subtb_discrepancy) <= huber_delta,
+            jnp.square(subtb_discrepancy),
+            huber_delta * jnp.abs(subtb_discrepancy) - 0.5 * huber_delta**2,
+        )
+    else:
+        subtb_losses = jnp.square(subtb_discrepancy)
+
     return jnp.mean(tb_losses + subtb_weight * subtb_losses.mean(-1)), (
         trajectories,
         -log_pfs_over_pbs,  # log(pb(s'->s)/pf(s->s'))
