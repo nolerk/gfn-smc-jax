@@ -100,6 +100,7 @@ gfn_subtb: # Sub-Trajectory Balance
   max_diffusion: 40.  # for pinned_brownian or ou
   step_size: 1e-3
   logflow_step_size: 1e-3
+  betas_step_size: 1e-1
   logZ_step_size: 1e-1  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2

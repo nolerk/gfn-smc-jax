@@ -9,6 +9,20 @@ from algorithms.common.types import Array, RandomKey, ModelParams
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
 
 
+def get_beta_fn(params, learn_betas, num_steps, lambda_fn=None):
+    if learn_betas:
+        b = jax.nn.softplus(params["params"]["betas"])
+        b = jnp.cumsum(b) / jnp.sum(b)
+        b = jnp.concatenate((jnp.array([0]), b))
+        beta_fn = lambda step: b[step]
+    else:
+        if lambda_fn is not None:
+            beta_fn = lambda step: (1 - lambda_fn(step))
+        else:
+            beta_fn = lambda step: step / num_steps
+    return beta_fn
+
+
 def get_flow_bias(weight, ref_log_prob, log_prob):
     return (1 - weight) * ref_log_prob + weight * log_prob
 
@@ -31,9 +45,11 @@ def per_sample_rnd_pinned_brownian(
     num_steps,
     use_lp,
     partial_energy,
+    learn_betas,
     prior_to_target=True,
 ):
     dim, noise_schedule = aux_tuple
+    beta_fn = get_beta_fn(params, learn_betas, num_steps)
     dt = 1.0 / num_steps
 
     def simulate_prior_to_target(state, per_step_input):
@@ -62,7 +78,7 @@ def per_sample_rnd_pinned_brownian(
                 lambda args: ref_log_prob_pinned_brownian(*args),
                 operand=(s, t, sigma_t),
             )
-            log_f_bias = get_flow_bias(t, ref_log_prob, log_prob)
+            log_f_bias = get_flow_bias(beta_fn(step), ref_log_prob, log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -134,7 +150,7 @@ def per_sample_rnd_pinned_brownian(
                 lambda args: ref_log_prob_pinned_brownian(*args),
                 operand=(s, t, sigma_t),
             )
-            log_f_bias = get_flow_bias(t, ref_log_prob, log_prob)
+            log_f_bias = get_flow_bias(beta_fn(step), ref_log_prob, log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -174,6 +190,7 @@ def per_sample_rnd_ou(
     num_steps,
     use_lp,
     partial_energy,
+    learn_betas,
     prior_to_target=True,
 ):
     raise NotImplementedError("OU reference process not implemented yet.")
@@ -189,9 +206,11 @@ def per_sample_rnd_ou_dds(
     num_steps,
     use_lp,
     partial_energy,
+    learn_betas,
     prior_to_target=True,
 ):
     init_std, init_log_prob, alpha_fn, lambda_fn = aux_tuple
+    beta_fn = get_beta_fn(params, learn_betas, num_steps, lambda_fn)
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -210,8 +229,7 @@ def per_sample_rnd_ou_dds(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            weight = 1 - lambda_fn(step)
-            log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
+            log_f_bias = get_flow_bias(beta_fn(step), init_log_prob(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -261,8 +279,7 @@ def per_sample_rnd_ou_dds(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            weight = 1 - lambda_fn(step)
-            log_f_bias = get_flow_bias(weight, init_log_prob(s), log_prob)
+            log_f_bias = get_flow_bias(beta_fn(step), init_log_prob(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -304,6 +321,7 @@ def rnd(
     num_steps,
     use_lp,
     partial_energy,
+    learn_betas,
     prior_to_target=True,
     initial_dist: distrax.Distribution | None = None,
     terminal_xs: Array | None = None,
@@ -328,7 +346,7 @@ def rnd(
 
     terminal_xs, trajectories, fwd_log_probs, bwd_log_probs, log_fs = jax.vmap(
         per_sample_fn,
-        in_axes=(0, None, None, 0, None, None, None, None, None, None),
+        in_axes=(0, None, None, 0, None, None, None, None, None, None, None),
     )(
         keys,
         model_state,
@@ -339,6 +357,7 @@ def rnd(
         num_steps,
         use_lp,
         partial_energy,
+        learn_betas,
         prior_to_target,
     )
 

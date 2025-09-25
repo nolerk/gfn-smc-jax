@@ -95,6 +95,7 @@ def gfn_subtb_smc_trainer(cfg, target):
             aux_tuple,
             alg_cfg.model.use_lp,
             alg_cfg.partial_energy,
+            alg_cfg.learn_betas,
         ),
         smc_configs=(
             smc_cfg.use,
@@ -122,6 +123,7 @@ def gfn_subtb_smc_trainer(cfg, target):
         num_steps=num_steps,
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
+        learn_betas=alg_cfg.learn_betas,
         initial_dist=initial_dist,
     )
 

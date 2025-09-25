@@ -84,6 +84,12 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             optimizers_map["logflow_optim"] = optax.adam(
                 learning_rate=build_lr_schedule(alg_cfg.logflow_step_size)
             )
+            if alg_cfg.learn_betas:
+                params["params"]["betas"] = jnp.ones((alg_cfg.num_steps,))
+                optimizers_map["betas_optim"] = optax.adam(
+                    learning_rate=build_lr_schedule(alg_cfg.betas_step_size)
+                )
+
         if (
             (alg_cfg.name == "gfn_tb" and alg_cfg.loss_type == "tb")
             or (
@@ -92,8 +98,7 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             )
             or (alg_cfg.reference_process in ["ou", "ou_dds"])
         ):
-            additional_params = {"logZ": jnp.array((alg_cfg.init_logZ,))}
-            params["params"] = {**params["params"], **additional_params}
+            params["params"]["logZ"] = jnp.array((alg_cfg.init_logZ,))
             optimizers_map["logZ_optim"] = optax.adam(
                 learning_rate=build_lr_schedule(alg_cfg.logZ_step_size)
             )

@@ -87,6 +87,7 @@ def gfn_subtb_trainer(cfg, target):
         num_steps=num_steps,
         use_lp=alg_cfg.model.use_lp,
         partial_energy=alg_cfg.partial_energy,
+        learn_betas=alg_cfg.learn_betas,
         initial_dist=initial_dist,
     )
 
@@ -117,7 +118,6 @@ def gfn_subtb_trainer(cfg, target):
     @jax.jit
     @partial(jax.grad, argnums=2, has_aux=True)
     def loss_bwd_grad_fn(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
-        # prior_to_target=False, terminal_xs is now an argument
         rnd_p = partial(
             rnd_partial_base,
             batch_size=batch_size,

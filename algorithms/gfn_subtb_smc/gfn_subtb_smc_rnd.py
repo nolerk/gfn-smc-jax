@@ -8,15 +8,13 @@ from flax.training.train_state import TrainState
 
 from algorithms.common.types import Array, RandomKey, ModelParams
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
+from algorithms.gfn_subtb.gfn_subtb_rnd import get_beta_fn, get_flow_bias
 from algorithms.gfn_subtb_smc.sampling_utils import binary_search_smoothing_jit, ess
 from algorithms.gfn_subtb_smc.mcmcs import mala
 from targets.base_target import Target
 
+
 ### per-step RND functions ###
-
-
-def get_flow_bias(weight, ref_log_prob, log_prob):
-    return (1 - weight) * ref_log_prob + weight * log_prob
 
 
 def get_log_f(
@@ -28,16 +26,15 @@ def get_log_f(
     partial_energy: bool,
     init_log_prob_fn: Callable[[Array], Array],
     target_log_prob_fn: Callable[[Array], Array],
-    lambda_fn: Callable[[int], float],
+    beta_fn: Callable[[int], float],
 ):
     def get_log_f_intermediate(state):
         _, log_f = model_state.apply_fn(
             params, state, (step / num_steps) * jnp.ones(1), jnp.zeros(state.shape[0])
         )  # langevin doesn't affect the _log_f
         if partial_energy:
-            weight = 1 - lambda_fn(step)
             log_f = log_f + get_flow_bias(
-                weight, init_log_prob_fn(state), target_log_prob_fn(state)
+                beta_fn(step), init_log_prob_fn(state), target_log_prob_fn(state)
             )
         return log_f
 
@@ -65,9 +62,11 @@ def per_sample_subtraj_rnd_ou_dds(
     timestep_tup: tuple[int, int],  # (start_step, subtraj_length)
     use_lp: bool,
     partial_energy: bool,
+    learn_betas: bool,
     prior_to_target: bool = True,
 ):
     init_std, init_log_prob_fn, alpha_fn, lambda_fn = aux_tuple
+    beta_fn = get_beta_fn(params, learn_betas, num_steps, lambda_fn)
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -86,8 +85,7 @@ def per_sample_subtraj_rnd_ou_dds(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            weight = 1 - lambda_fn(step)
-            log_f_bias = get_flow_bias(weight, init_log_prob_fn(s), log_prob)
+            log_f_bias = get_flow_bias(beta_fn(step), init_log_prob_fn(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -137,8 +135,7 @@ def per_sample_subtraj_rnd_ou_dds(
 
         log_f_bias = jnp.array(0.0)
         if partial_energy:
-            weight = 1 - lambda_fn(step)
-            log_f_bias = get_flow_bias(weight, init_log_prob_fn(s), log_prob)
+            log_f_bias = get_flow_bias(beta_fn(step), init_log_prob_fn(s), log_prob)
 
         model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
         log_f = log_f + log_f_bias
@@ -180,7 +177,7 @@ def per_sample_subtraj_rnd_ou_dds(
         partial_energy=partial_energy,
         init_log_prob_fn=init_log_prob_fn,
         target_log_prob_fn=target.log_prob,
-        lambda_fn=lambda_fn,
+        beta_fn=beta_fn,
     )
     return end_state, subtrajectory, fwd_log_prob, bwd_log_prob, log_f, end_state_log_f
 
@@ -217,6 +214,7 @@ def batch_simulate_subtraj_fwd(
         tuple,  # aux_tuple; for ou_dds, (init_std, initial_dist.log_prob, alpha_fn, lambda_fn)
         bool,  # use_lp
         bool,  # partial_energy
+        bool,  # learn_betas
     ],
     smc_configs: tuple[
         bool,  # use
@@ -236,7 +234,7 @@ def batch_simulate_subtraj_fwd(
     assert num_steps % num_subtrajs == 0
     subtraj_length = num_steps // num_subtrajs
 
-    reference_process, aux_tuple, use_lp, partial_energy = sampling_configs
+    reference_process, aux_tuple, use_lp, partial_energy, learn_betas = sampling_configs
     use_resampling, resample_threshold, sampling_func, target_ess = smc_configs
     use_mcmc, chain_length, step_size, n_burnin, adapt, target_acceptance_rate = mcmc_configs
     init_log_prob_fn = lambda s: (
@@ -245,7 +243,9 @@ def batch_simulate_subtraj_fwd(
 
     log_f_fn_partial = None
     if use_mcmc:
-        lambda_fn = aux_tuple[3] if reference_process == "ou_dds" else lambda step: step / num_steps
+        lambda_fn = aux_tuple[3] if reference_process == "ou_dds" else None
+        beta_fn = get_beta_fn(params, learn_betas, num_steps, lambda_fn)
+
         log_f_fn_partial = partial(
             get_log_f,
             model_state=model_state,
@@ -254,7 +254,7 @@ def batch_simulate_subtraj_fwd(
             partial_energy=partial_energy,
             init_log_prob_fn=init_log_prob_fn,
             target_log_prob_fn=target.log_prob,
-            lambda_fn=lambda_fn,
+            beta_fn=beta_fn,
         )
 
     ### subtrajectory step functions ###
@@ -280,7 +280,7 @@ def batch_simulate_subtraj_fwd(
             end_state_log_fs,
         ) = jax.vmap(
             per_sample_fn,
-            in_axes=(0, None, None, 0, None, None, None, None, None, None, None),
+            in_axes=(0, None, None, 0, None, None, None, None, None, None, None, None),
         )(
             keys,
             model_state,
@@ -292,6 +292,7 @@ def batch_simulate_subtraj_fwd(
             (start_step, subtraj_length),
             use_lp,
             partial_energy,
+            learn_betas,
             True,  # prior_to_target
         )
 
