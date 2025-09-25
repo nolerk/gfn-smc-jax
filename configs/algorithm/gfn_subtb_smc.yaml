@@ -27,7 +27,6 @@ lr_schedule:
 defaults:
   - model: pisgrad_net
   - noise_schedule: const
-  - mcmc: hmc  # TODO: mala
 
 model:
   learn_flow: True

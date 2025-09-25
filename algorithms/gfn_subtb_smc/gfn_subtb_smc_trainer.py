@@ -31,6 +31,8 @@ def gfn_subtb_smc_trainer(cfg, target):
 
     dim = target.dim
     alg_cfg = cfg.algorithm
+    smc_cfg = alg_cfg.smc
+    mcmc_cfg = alg_cfg.mcmc
     buffer_cfg = alg_cfg.buffer
     batch_size = alg_cfg.batch_size
     num_steps = alg_cfg.num_steps
@@ -95,18 +97,18 @@ def gfn_subtb_smc_trainer(cfg, target):
             alg_cfg.partial_energy,
         ),
         smc_configs=(
-            alg_cfg.smc.use,
-            alg_cfg.smc.resample_threshold,
-            get_sampling_func(alg_cfg.smc.sampling_method),
-            alg_cfg.smc.target_ess,
+            smc_cfg.use,
+            smc_cfg.resample_threshold,
+            get_sampling_func(smc_cfg.sampling_method),
+            smc_cfg.target_ess,
         ),
         mcmc_configs=(
-            alg_cfg.mcmc.use,
-            alg_cfg.mcmc.chain_length,
-            alg_cfg.mcmc.step_size,
-            alg_cfg.mcmc.n_burnin,
-            alg_cfg.mcmc.adapt,
-            alg_cfg.mcmc.target_acceptance_rate,
+            mcmc_cfg.use,
+            mcmc_cfg.chain_length,
+            mcmc_cfg.step_size,
+            mcmc_cfg.n_burnin,
+            mcmc_cfg.adapt,
+            mcmc_cfg.target_acceptance_rate,
         ),
     )
     simulate_subtraj_fwd_jit = jax.jit(simulate_subtraj_fwd_partial)
