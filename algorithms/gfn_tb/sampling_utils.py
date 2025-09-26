@@ -18,49 +18,90 @@ def ess(
     return 1 / (normalized_weights**2).sum()  # scalar
 
 
+@jax.jit
 def binary_search_smoothing(
     log_iws: chex.Array,
     target_ess: float = 0.0,
     tol=1e-3,
     max_steps=1000,
-) -> tuple[chex.Array, float]:
-    tempering = lambda x, temp: x / temp
+) -> chex.Array:
     batch_size = log_iws.shape[0]  # type: ignore
 
-    # Check if tempering is needed
-    if done := ess(log_iws=log_iws) / batch_size >= target_ess:
-        return log_iws, 1.0
+    # Helper closures (JAX-friendly)
+    def normalize_ess(_log_iws: chex.Array) -> chex.Array:
+        return ess(log_iws=_log_iws) / batch_size
 
-    # Search for a suitable range of search_min and search_max
-    search_min = 1.0
-    search_max = 10.0
-    while ess(tempering(log_iws, search_max)) / batch_size < target_ess:
-        search_min *= 10.0
-        search_max *= 10.0
+    tol_f = jnp.asarray(tol, dtype=log_iws.dtype)
 
-    new_log_iws = jnp.copy(log_iws)
-    final_temp = 1.0
-    steps = 0
-    while not done:
-        steps += 1
-        mid = (search_min + search_max) / 2
+    # Early exit if already meets target ESS
+    init_norm_ess = normalize_ess(log_iws)
 
-        new_log_iws = tempering(log_iws, mid)  # (bs,)
-        new_ess = ess(log_iws=new_log_iws) / batch_size
-        done = jax.lax.abs(new_ess - target_ess) < tol
-        if done:
-            final_temp = mid
+    def _early_return(_: None):
+        return log_iws, jnp.asarray(1.0, dtype=log_iws.dtype)
 
-        if new_ess > target_ess:
-            search_max = mid
-        else:
-            search_min = mid
+    def _continue(_: None):
+        # Expand search range so that ESS(log_iws / search_max) >= target_ess
+        init_search_min = jnp.asarray(1.0, dtype=log_iws.dtype)
+        init_search_max = jnp.asarray(10.0, dtype=log_iws.dtype)
 
-        if steps > max_steps:
-            print(f"Warning: Binary search failed in {max_steps} steps")
-            break
+        def range_cond_fun(state):
+            _, search_max, _ = state
+            cur_ess = normalize_ess(log_iws / search_max)
+            return cur_ess < target_ess
 
-    return new_log_iws, final_temp
+        def range_body_fun(state):
+            search_min, search_max, steps = state
+            return search_min * 10.0, search_max * 10.0, steps + 1
+
+        search_min, search_max, _ = jax.lax.while_loop(
+            range_cond_fun,
+            range_body_fun,
+            (init_search_min, init_search_max, jnp.asarray(0, dtype=jnp.int32)),
+        )
+
+        # Binary search for temperature achieving ESS close to target
+        init_state = (
+            search_min,  # search_min
+            search_max,  # search_max
+            jnp.asarray(0, dtype=jnp.int32),  # steps
+            jnp.asarray(False),  # done
+            jnp.asarray(1.0, dtype=log_iws.dtype),  # final_temp
+        )
+
+        def bin_cond_fun(state):
+            _, _, step, done, _ = state
+            return (~done) & (step < max_steps)
+
+        def bin_body_fun(state):
+            search_min, search_max, step, _, _ = state
+            mid = (search_min + search_max) / 2.0
+
+            tempered_log_iws = log_iws / mid
+            new_ess = normalize_ess(tempered_log_iws)
+            is_converged = jnp.abs(new_ess - target_ess) < tol_f
+
+            # Update the bracket based on whether ESS is above or below target
+            go_left = new_ess > target_ess
+            new_search_max = jnp.where(go_left, mid, search_max)
+            new_search_min = jnp.where(go_left, search_min, mid)
+
+            return new_search_min, new_search_max, step + 1, is_converged, mid
+
+        search_min, search_max, step, done, final_temp = jax.lax.while_loop(
+            bin_cond_fun, bin_body_fun, init_state
+        )
+
+        # print warning if not converged
+        def _print_warning(_: None):
+            jax.debug.print(f"Binary search failed in {max_steps} steps")
+            return None
+
+        jax.lax.cond(step >= max_steps, _print_warning, lambda _: None, operand=None)
+
+        # Choose final temperature: best match if found, else mid of bracket
+        return log_iws / final_temp, final_temp
+
+    return jax.lax.cond(init_norm_ess >= target_ess, _early_return, _continue, operand=None)
 
 
 def multinomial(

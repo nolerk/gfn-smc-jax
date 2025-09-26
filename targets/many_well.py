@@ -1,3 +1,4 @@
+import math
 import chex
 import distrax
 import jax
@@ -126,11 +127,11 @@ class ManyWellEnergy(Target):
         """Marginal 2D pdf - useful for plotting."""
         return self.double_well_energy.log_prob(x)
 
-    def visualise(self, samples: chex.Array = None, axes=None, show=False, prefix="") -> dict:
+    def visualise(self, samples: chex.Array = None, show=False, prefix="") -> dict:
         """Visualise samples from the model."""
         plotting_bounds = (-3, 3)
         grid_width_n_points = 100
-        fig, axs = plt.subplots(2, 2, sharex="row", sharey="row")
+        fig, axs = plt.subplots(2, 2, figsize=(8, 8), sharex="row", sharey="row")
         samples = jnp.clip(samples, plotting_bounds[0], plotting_bounds[1])
         for i in range(2):
             for j in range(2):
@@ -216,6 +217,178 @@ class ManyWellEnergy(Target):
 
         all_acc = jnp.concatenate(accepted, axis=0)
         return all_acc[:n_samples]
+
+
+class ManyWell2(Target):
+    def __init__(
+        self,
+        dim: float = 5,
+        m: float = 5,
+        delta: float = 4,
+        can_sample: bool = True,
+        sample_bounds=None,
+    ):
+        self.d = dim
+        self.m = m
+        self.delta = jnp.array(delta)
+
+        self._plot_bound = 3.0
+
+        super().__init__(dim=dim, log_Z=self.log_Z, can_sample=can_sample)
+
+    def log_prob(self, x):
+        batched = x.ndim == 2
+
+        if not batched:
+            x = x[None,]
+        assert x.shape[1] == self.d, "Dimension mismatch"
+        m = self.m
+        d = self.d
+        delta = self.delta
+
+        prefix = x[:, :m]
+        k = ((prefix**2 - delta) ** 2).sum(axis=1)
+
+        suffix = x[:, m:]
+        k2 = 0.5 * (suffix**2).sum(axis=1)
+
+        log_probs = -k - k2
+        if not batched:
+            log_probs = jnp.squeeze(log_probs, axis=0)
+
+        return log_probs
+
+    def log_prob_2D(self, x):
+        batched = x.ndim == 2
+
+        if not batched:
+            x = x[None,]
+
+        m = self.m
+        d = self.d
+        delta = self.delta
+
+        prefix = x[:, :2]
+        k = ((prefix**2 - delta) ** 2).sum(axis=1)
+
+        # suffix = x[:, m:]
+        # k2 = 0.5 * (suffix**2).sum(axis=1)
+        k2 = 0
+
+        log_probs = -k - k2
+        if not batched:
+            log_probs = jnp.squeeze(log_probs, axis=0)
+
+        return log_probs
+
+    def visualise(self, samples: chex.Array = None, axes=None, show=False, prefix="") -> dict:
+        """Visualise samples from the model."""
+        plotting_bounds = (-3, 3)
+        grid_width_n_points = 100
+        fig, axs = plt.subplots(2, 2, figsize=(8, 8), sharex="row", sharey="row")
+        samples = jnp.clip(samples, plotting_bounds[0], plotting_bounds[1])
+        for i in range(2):
+            for j in range(2):
+                # plot contours
+                def _log_prob_marginal_pair(x_2d, i, j):
+                    x = jnp.zeros((x_2d.shape[0], self.dim))
+                    x = x.at[:, i].set(x_2d[:, 0])
+                    x = x.at[:, j].set(x_2d[:, 1])
+                    return self.log_prob(x)
+
+                xx, yy = jnp.meshgrid(
+                    jnp.linspace(plotting_bounds[0], plotting_bounds[1], grid_width_n_points),
+                    jnp.linspace(plotting_bounds[0], plotting_bounds[1], grid_width_n_points),
+                )
+                x_points = jnp.column_stack([xx.ravel(), yy.ravel()])
+                log_probs = _log_prob_marginal_pair(x_points, i, j + 2)
+                log_probs = jnp.clip(log_probs, -1000, a_max=None).reshape(
+                    (grid_width_n_points, grid_width_n_points)
+                )
+                axs[i, j].contour(xx, yy, log_probs, levels=20)
+
+                # plot samples
+                axs[i, j].plot(samples[:, i], samples[:, j + 2], "o", alpha=0.5)
+
+                if j == 0:
+                    axs[i, j].set_ylabel(f"$x_{i + 1}$")
+                if i == 1:
+                    axs[i, j].set_xlabel(f"$x_{j + 1 + 2}$")
+
+        wb = {"figures/vis": [wandb.Image(fig)]}
+        if show:
+            plt.show()
+        else:
+            plt.close()
+        return wb
+
+    @property
+    def log_Z(self):
+        # numerical integration
+        l, r = -100, 100
+        s = 100000000
+        key = jax.random.PRNGKey(0)
+
+        pt = jax.random.uniform(key, (s,), minval=l, maxval=r)
+        fst = jnp.log(jnp.sum(jnp.exp(-((pt**2 - self.delta) ** 2)) * ((r - l) / s)))
+
+        self.logZ_1d = fst
+
+        # well the below works but there's analytic solution this is Gaussian lmao - junhua
+        pt = jax.random.uniform(key, (s,), minval=l, maxval=r)
+        snd = jnp.log(jnp.sum(jnp.exp(-0.5 * pt**2) * ((r - l) / s)))
+
+        return fst * self.m + snd * (self.d - self.m)
+
+    def sample(self, seed: chex.PRNGKey, sample_shape: chex.Shape) -> chex.Array:
+
+        REJECTION_SCALE = 6
+
+        def doubleWell1dLogDensity(xs, shift, separation):
+            return -(((xs - shift) ** 2 - separation) ** 2) - self.logZ_1d
+
+        def rejection_sampling(seed, shape, proposal, target_pdf, scaling):
+            new_key, subkey1, subkey2 = jax.random.split(seed, num=3)
+            n_samples = math.prod(shape)
+            samples = proposal.sample(
+                seed=subkey1, sample_shape=(n_samples * math.ceil(scaling) * 10,)
+            )
+            unif = jax.random.uniform(subkey2, (samples.shape[0],))
+            unif *= scaling * jnp.exp(proposal.log_prob(samples))
+            accept = unif < target_pdf(samples).squeeze(1)
+            samples = samples[accept]
+            if samples.shape[0] >= n_samples:
+                return jnp.reshape(samples[:n_samples], shape)
+            else:
+                new_shape = (n_samples - samples.shape[0],)
+                new_samples = rejection_sampling(new_key, new_shape, proposal, target_pdf, scaling)
+                return jnp.concat([samples.reshape(*shape, -1), new_samples])
+
+        def GetProposal(shift, separation):
+            # proposal distribution for 1D doubleWell rejection sampling
+            loc = shift + jnp.sqrt(separation) * jnp.array([[-1.0], [1.0]])
+            scale = 1 / jnp.sqrt(separation) * jnp.array([[1.0], [1.0]])
+            ps = jnp.array([0.5, 0.5])
+            components = distrax.MultivariateNormalDiag(loc=loc, scale_diag=scale)
+            gmm = distrax.MixtureSameFamily(
+                mixture_distribution=distrax.Categorical(probs=ps),
+                components_distribution=components,
+            )
+            return gmm
+
+        def Sample1DDoubleWell(seed, shape, shift, separation):
+            proposal = GetProposal(shift, separation)
+            target_pdf = lambda xs: jnp.exp(doubleWell1dLogDensity(xs, shift, separation))
+            return rejection_sampling(seed, shape, proposal, target_pdf, REJECTION_SCALE)
+
+        new_key, subkey1, subkey2 = jax.random.split(seed, num=3)
+
+        n_dw, n_gauss = self.m, self.d - self.m
+        dw_samples = Sample1DDoubleWell(subkey1, sample_shape + (n_dw,), 0, self.delta)
+
+        gauss_samples = jax.random.normal(subkey2, sample_shape + (n_gauss,))
+
+        return jnp.concat([dw_samples, gauss_samples], axis=-1)
 
 
 if __name__ == "__main__":

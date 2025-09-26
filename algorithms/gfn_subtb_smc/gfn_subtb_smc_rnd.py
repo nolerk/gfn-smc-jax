@@ -8,8 +8,8 @@ from flax.training.train_state import TrainState
 
 from algorithms.common.types import Array, RandomKey, ModelParams
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
+from algorithms.gfn_tb.sampling_utils import binary_search_smoothing, ess
 from algorithms.gfn_subtb.gfn_subtb_rnd import get_beta_fn, get_flow_bias
-from algorithms.gfn_subtb_smc.sampling_utils import binary_search_smoothing_jit, ess
 from algorithms.gfn_subtb_smc.mcmcs import mala
 from targets.base_target import Target
 
@@ -189,7 +189,7 @@ def resampling(
     sampling_func: Callable[[RandomKey, Array, int, bool], Array],
     target_ess: float,
 ):
-    tempered_log_iws, temp = binary_search_smoothing_jit(log_iws, target_ess)
+    tempered_log_iws, temp = binary_search_smoothing(log_iws, target_ess)
     indices = sampling_func(
         key, jax.nn.softmax(tempered_log_iws, axis=0), log_iws.shape[0], replacement=True
     )

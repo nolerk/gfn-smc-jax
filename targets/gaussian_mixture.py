@@ -118,7 +118,6 @@ class GaussianMixtureModel(Target):
         prefix="",
         log_prob_fn: Callable[[chex.Array], chex.Array] | None = None,
     ) -> dict:
-        plt.close()
         if self.dim == 2:
             bounds = (self.min_mean_val * 1.8, self.max_mean_val * 1.8)
             fig = plt.figure(figsize=(6, 6))
@@ -138,7 +137,8 @@ class GaussianMixtureModel(Target):
             wb = {f"figures/{prefix + '_' if prefix else ''}vis": [wandb.Image(fig)]}
             if show:
                 plt.show()
-
+            else:
+                plt.close()
             return wb
         else:
             return {}

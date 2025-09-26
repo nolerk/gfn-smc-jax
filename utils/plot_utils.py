@@ -17,6 +17,7 @@ def plot_contours_2D(
     bounds: tuple[float, float] = (-3, 3),
     levels: int = 20,
     n_points: int = 200,
+    log: bool = False,
 ):
     """Plot the contours of a 2D log prob function."""
     x_points_dim1 = np.linspace(bounds[0], bounds[1], n_points)
@@ -30,10 +31,13 @@ def plot_contours_2D(
 
     log_probs = sliced_log_prob(x_points)
     log_probs = jnp.clip(log_probs, a_min=-1000, a_max=None)
-    probs = jnp.exp(log_probs)
     x1 = x_points[:, 0].reshape(n_points, n_points)
     x2 = x_points[:, 1].reshape(n_points, n_points)
-    z = probs.reshape(n_points, n_points)
+    if log:
+        z = log_probs
+    else:
+        z = jnp.exp(log_probs)
+    z = z.reshape(n_points, n_points)
     ax.contourf(x1, x2, z, levels=levels)
 
 
@@ -44,13 +48,15 @@ def plot_marginal_pair(
     bounds: Tuple[float, float] = (-5, 5),
     alpha: float = 0.5,
     max_points: int = 500,
+    color: str = "r",
+    marker: str = "x",
 ):
     """Plot samples from marginal of distribution for a given pair of dimensions."""
     samples = jnp.clip(samples, bounds[0], bounds[1])
     ax.scatter(
         samples[:max_points, marginal_dims[0]],
         samples[:max_points, marginal_dims[1]],
-        color="r",
+        color=color,
         alpha=alpha,
-        marker="x",
+        marker=marker,
     )
