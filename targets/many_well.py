@@ -1,12 +1,8 @@
-from typing import List
-
 import chex
+import distrax
 import jax
 import jax.numpy as jnp
 
-# import matplotlib
-#
-# matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import wandb
 
@@ -75,7 +71,7 @@ class ManyWellEnergy(Target):
         b: float = -6.0,
         c: float = 1.0,
         dim=32,
-        can_sample=False,
+        can_sample=True,
         sample_bounds=None,
     ) -> None:
         assert dim % 2 == 0
@@ -85,24 +81,20 @@ class ManyWellEnergy(Target):
         log_Z = self.double_well_energy.log_Z * self.n_wells
         super().__init__(dim=dim, log_Z=log_Z, can_sample=can_sample)
 
-        self.centre = 1.7
-        self.max_dim_for_all_modes = 40  # otherwise we get memory issues on huge test set
-        if self.dim < self.max_dim_for_all_modes:
-            dim_1_vals_grid = jnp.meshgrid(
-                *[jnp.array([-self.centre, self.centre]) for _ in range(self.n_wells)]
-            )
-            dim_1_vals = jnp.stack([dim.flatten() for dim in dim_1_vals_grid], axis=-1)
-            n_modes = 2**self.n_wells
-            assert n_modes == dim_1_vals.shape[0]
-            test_set = jnp.zeros((n_modes, dim))
-            test_set = test_set.at[:, jnp.arange(dim) % 2 == 0].set(dim_1_vals)
-            self.test_set = test_set
-        else:
-            raise NotImplementedError("still need to implement this")
-
-        self.shallow_well_bounds = [-1.75, -1.65]
-        self.deep_well_bounds = [1.7, 1.8]
         self._plot_bound = 3.0
+
+        # Define the proposal distribution for the rejection sampling
+        # Mixture of two Gaussians: weights [0.2, 0.8], means [-1.7, 1.7], scales [0.5, 0.5]
+        self.means = jnp.array([-1.7, 1.7])
+        self.scales = jnp.array([0.5, 0.5])
+        self.log_weights = jnp.log(jnp.array([0.2, 0.8]))
+
+        self.proposal_dist = distrax.MixtureSameFamily(
+            mixture_distribution=distrax.Categorical(logits=self.log_weights),
+            components_distribution=distrax.Independent(
+                distrax.Normal(loc=self.means, scale=self.scales)
+            ),
+        )
 
     def log_prob(self, x):
         batched = x.ndim == 2
@@ -110,7 +102,11 @@ class ManyWellEnergy(Target):
         if not batched:
             x = x[None,]
 
-        log_probs = jnp.sum(
+        x_reshaped = x.reshape((-1, self.n_wells, 2)).reshape((-1, 2))
+        double_well_log_probs = self.double_well_energy.log_prob(x_reshaped)
+        log_probs = jnp.sum(double_well_log_probs.reshape((-1, self.n_wells)), axis=-1)
+
+        log_probs2 = jnp.sum(
             jnp.stack(
                 [
                     self.double_well_energy.log_prob(x[..., i * 2 : i * 2 + 2])
@@ -173,7 +169,53 @@ class ManyWellEnergy(Target):
         return wb
 
     def sample(self, seed: chex.PRNGKey, sample_shape: chex.Shape) -> chex.Array:
-        return None
+        # Non-jittable rejection sampling, called once at the beginning.
+        if len(sample_shape) == 1:
+            n_samples = int(sample_shape[0])
+        else:
+            raise ValueError(f"Unsupported sample_shape: {sample_shape}")
+
+        key = seed
+        pairs = []
+        for _ in range(self.n_wells):
+            key, k1, k2 = jax.random.split(key, 3)
+            x1 = self._rejection_sampling_x1(k1, n_samples)
+            x2 = jax.random.normal(k2, shape=(n_samples,))
+            pairs.append(jnp.stack([x1, x2], axis=1))  # (n, 2)
+
+        return jnp.concatenate(pairs, axis=1)  # (n, dim)
+
+    # ----- Helpers for rejection sampling (x1 dimension) ----- #
+    @staticmethod
+    def _target_unnormed_logp_x1(x: chex.Array) -> chex.Array:
+        # log p(x1) up to a constant: -(x^4) + 6 x^2 + 0.5 x
+        return -(x**4) + 6.0 * (x**2) + 0.5 * x
+
+    def _rejection_sampling_x1(self, key: chex.PRNGKey, n_samples: int) -> chex.Array:
+        # Rejection sampling with envelope k
+        Z_x1 = 11784.50927
+        k = Z_x1 * 3.0
+
+        accepted = []
+        remaining = n_samples
+        while remaining > 0:
+            batch = remaining * 10
+            key, k_prop, k_u = jax.random.split(key, 3)
+            z0 = self.proposal_dist.sample(seed=k_prop, sample_shape=(batch,))
+            prop_lp = self.proposal_dist.log_prob(z0)
+            targ_ul = self._target_unnormed_logp_x1(z0)
+
+            # Accept with probability exp(targ_ul - prop_lp) / k
+            accept_prob = jnp.exp(targ_ul - prop_lp) / k
+            u = jax.random.uniform(k_u, shape=(batch,))
+            mask = u < accept_prob
+            acc = z0[mask]
+            if acc.size > 0:
+                accepted.append(acc)
+                remaining -= int(acc.size)
+
+        all_acc = jnp.concatenate(accepted, axis=0)
+        return all_acc[:n_samples]
 
 
 if __name__ == "__main__":

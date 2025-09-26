@@ -40,6 +40,7 @@ class Funnel(Target):
 
     def sample(self, seed: chex.PRNGKey, sample_shape: chex.Shape = ()) -> chex.Array:
         key1, key2 = jax.random.split(seed)
+        breakpoint()
         dominant_x = self.dist_dominant.sample(seed=key1, sample_shape=sample_shape)  # (B,1)
         x_others = self._dist_other(dominant_x).sample(seed=key2)  # (B, dim-1)
         if self.sample_bounds is not None:

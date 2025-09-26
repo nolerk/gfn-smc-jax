@@ -2,8 +2,8 @@
 name: gfn_subtb
 step_size: ${target.gfn_subtb.step_size}
 batch_size: ${target.all.batch_size}
-iters: 40000
-num_steps: 128
+iters: ${target.all.iters}
+num_steps: ${target.all.num_steps}
 grad_clip: 1.
 reference_process: ${target.gfn_subtb.reference_process}  # ou or pinned_brownian
 init_std: ${target.gfn_subtb.init_std}  # for ou
@@ -35,8 +35,8 @@ defaults:
 model:
   learn_flow: True
   share_embeddings: False
-  use_lp: True
-  num_hid: 64
+  use_lp: ${target.all.use_lp}
+  num_hid: ${target.all.num_hid}
   flow_num_hid: 256
   weight_init: 1e-8  # Initialization of the last layers' weights of the time-dependent network
   bias_init: 0.1  # Initialization of the last layers' bias of the time-dependent network
@@ -52,6 +52,6 @@ buffer:
   sampling_method: "systematic"  # multinomial, stratified, systematic, rank
   rank_k: 0.01  # only used if sampling_method is rank
   sample_with_replacement: True
-  prefill_steps: 10  # collect `prefill_steps` batches before starting training
-  bwd_to_fwd_ratio: 2  # number of bwd steps per fwd step
+  prefill_steps: 100  # collect `prefill_steps` batches before starting training
+  bwd_to_fwd_ratio: 3  # number of bwd steps per fwd step
   update_score: False
