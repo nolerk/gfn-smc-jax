@@ -161,6 +161,7 @@ def gfn_subtb_trainer(cfg, target):
         cfg.use_wandb
         and getattr(target, "log_prob_t", None) is not None
         and reference_process == "ou_dds"  # TODO: support other reference processes
+        and cfg.target.name in ["gaussian_mixture", "gaussian_mixture40"]  # TODO: support others
     ):
         true_vis_dict = visualise_true_intermediate_distribution(
             target.visualise,
@@ -292,8 +293,7 @@ def gfn_subtb_trainer(cfg, target):
             logger.update(eval_fn(model_state, key))
 
             # Visualize intermediate distributions (learned flows)
-            # Obtain trajectories from the model
-            if cfg.use_wandb:
+            if cfg.use_wandb and cfg.target.name in ["gaussian_mixture", "gaussian_mixture40"]:
                 key, key_gen = jax.random.split(key_gen)
                 vis_dict = visualise_intermediate_distribution(
                     target.visualise,

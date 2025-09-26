@@ -171,6 +171,7 @@ def gfn_subtb_smc_trainer(cfg, target):
         cfg.use_wandb
         and getattr(target, "log_prob_t", None) is not None
         and reference_process == "ou_dds"  # TODO: support other reference processes
+        and cfg.target.name in ["gaussian_mixture", "gaussian_mixture40"]  # TODO: support others
     ):
         true_vis_dict = visualise_true_intermediate_distribution(
             target.visualise,
@@ -234,6 +235,8 @@ def gfn_subtb_smc_trainer(cfg, target):
                     jnp.zeros_like(log_rewards),  # loss-prioritized buffer should not be used here
                 )
 
+        # Off-policy training with buffer samples
+        else:
             # Sample terminal states using smc and store in buffer
             if alg_cfg.smc.use and use_buffer:
                 for _ in range(alg_cfg.smc.repeat_iter):
@@ -251,8 +254,6 @@ def gfn_subtb_smc_trainer(cfg, target):
                         jnp.zeros_like(final_log_iws),
                     )
 
-        # Off-policy training with buffer samples
-        else:
             # Sample terminal states from buffer
             key, key_gen = jax.random.split(key_gen)
             samples, log_rewards, indices = buffer.sample(buffer_state, key, batch_size)
@@ -291,8 +292,7 @@ def gfn_subtb_smc_trainer(cfg, target):
             logger.update(eval_fn(model_state, key))
 
             # Visualize intermediate distributions (learned flows)
-            # Obtain trajectories from the model
-            if cfg.use_wandb:
+            if cfg.use_wandb and cfg.target.name in ["gaussian_mixture", "gaussian_mixture40"]:
                 key, key_gen = jax.random.split(key_gen)
                 vis_dict = visualise_intermediate_distribution(
                     target.visualise,
