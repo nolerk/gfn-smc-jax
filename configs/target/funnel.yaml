@@ -85,7 +85,7 @@ gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
   init_std: 1.  # for ou or ou_dss
   max_diffusion: 1.  # for pinned_brownian or ou
-  step_size: 5e-4
+  step_size: 1e-3
   logZ_step_size: 1e-1
   init_logZ: 0.
 
@@ -93,9 +93,9 @@ gfn_subtb: # Sub-Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
   init_std: 1.  # for ou or ou_dds
   max_diffusion: 1.  # for pinned_brownian or ou
-  step_size: 5e-4
-  logflow_step_size: 5e-4
-  betas_step_size: 5e-4
+  step_size: 1e-3
+  logflow_step_size: 1e-3
+  betas_step_size: 1e-3
   logZ_step_size: 1e-1  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2

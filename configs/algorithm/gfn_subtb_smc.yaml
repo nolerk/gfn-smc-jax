@@ -46,7 +46,7 @@ buffer:
   use: True
   max_length_in_batches: 100
   prioritize_by: "piw"  # none, reward, loss, uiw, piw
-  target_ess: 0.20
+  target_ess: 0.05
   sampling_method: "systematic"  # multinomial, stratified, systematic, rank
   rank_k: 0.01  # only used if sampling_method is rank
   sample_with_replacement: True
@@ -59,7 +59,7 @@ smc:
   resample_threshold: 0.20
   target_ess: 0.05
   sampling_method: systematic
-  repeat_iter: 2
+  repeat_iter: 1
 
 mcmc:
   use: False
