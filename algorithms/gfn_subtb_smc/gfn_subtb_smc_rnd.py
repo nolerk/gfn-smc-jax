@@ -305,7 +305,10 @@ def batch_simulate_fwd_subtrajectories(
         if use_resampling:
             normalized_ess = ess(log_iws=next_log_iws) / batch_size
             next_states, next_log_iws = jax.lax.cond(
-                normalized_ess < resample_threshold,
+                jnp.logical_and(
+                    normalized_ess < resample_threshold,
+                    start_step + subtraj_length != num_steps,  # don't resample at the last step
+                ),
                 lambda args: resampling(args[0], args[1], args[2], sampling_func, target_ess),
                 lambda args: (args[1], args[2]),
                 (key, next_states, next_log_iws),
