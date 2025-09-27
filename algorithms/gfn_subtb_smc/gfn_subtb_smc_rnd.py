@@ -5,6 +5,7 @@ import distrax
 import jax
 import jax.numpy as jnp
 from flax.training.train_state import TrainState
+from jax.scipy.special import logsumexp
 
 from algorithms.common.types import Array, RandomKey, ModelParams
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
@@ -194,9 +195,11 @@ def resampling(
         key, jax.nn.softmax(tempered_log_iws, axis=0), log_iws.shape[0], replacement=True
     )
     resampled_states = states[indices]
+    logZ_ratio = logsumexp(log_iws)  # log(\hat{Z_t / Z_{t_prev}})
     resampled_log_iws = log_iws[indices] * (1 - 1 / temp)
+    resampled_log_iws = jax.nn.log_softmax(resampled_log_iws, axis=0)
 
-    return resampled_states, resampled_log_iws
+    return resampled_states, resampled_log_iws, logZ_ratio
 
 
 ### simulate ###
@@ -259,8 +262,9 @@ def batch_simulate_fwd_subtrajectories(
 
     ### subtrajectory step functions ###
     def batch_simulate_subtrajectory(step_input, per_step_input):
-        states, log_iws, key_gen = step_input
+        states, log_iws, init_fwd_log_probs, key_gen = step_input
         start_step = per_step_input
+        end_step = start_step + subtraj_length
 
         ## vectorized subtrajectory sampling
         key, key_gen = jax.random.split(key_gen)
@@ -296,21 +300,29 @@ def batch_simulate_fwd_subtrajectories(
             True,  # prior_to_target
         )
 
-        next_log_iws = log_iws + (
-            end_state_log_fs + bwd_log_probs.sum(-1) - log_fs[:, 0] - fwd_log_probs.sum(-1)
+        start_state_log_fs = jax.lax.cond(
+            start_step == 0,
+            lambda _: init_fwd_log_probs,
+            lambda _: log_fs[:, 0],
+            operand=None,
+        )
+        next_log_iws = log_iws + jax.lax.stop_gradient(
+            end_state_log_fs + bwd_log_probs.sum(-1) - start_state_log_fs - fwd_log_probs.sum(-1)
         )
 
         ## Do resampling with the adaptive tempering
         key, key_gen = jax.random.split(key_gen)
+        logZ_ratio = jnp.array(0.0)
         if use_resampling:
             normalized_ess = ess(log_iws=next_log_iws) / batch_size
-            next_states, next_log_iws = jax.lax.cond(
-                jnp.logical_and(
-                    normalized_ess < resample_threshold,
-                    start_step + subtraj_length != num_steps,  # don't resample at the last step
-                ),
+            next_states, next_log_iws, logZ_ratio = jax.lax.cond(
+                # jnp.logical_and(
+                #     normalized_ess < resample_threshold,
+                #     start_step + subtraj_length != num_steps,  # don't resample at the last step
+                # ),
+                normalized_ess < resample_threshold,
                 lambda args: resampling(args[0], args[1], args[2], sampling_func, target_ess),
-                lambda args: (args[1], args[2]),
+                lambda args: (args[1], args[2], jnp.array(0.0)),
                 (key, next_states, next_log_iws),
             )
 
@@ -320,7 +332,7 @@ def batch_simulate_fwd_subtrajectories(
             next_states, new_log_fs, _ = mala(
                 key,
                 next_states,
-                partial(log_f_fn_partial, step=start_step + subtraj_length),
+                partial(log_f_fn_partial, step=end_step),
                 chain_length,
                 step_size,
                 n_burnin,
@@ -328,49 +340,55 @@ def batch_simulate_fwd_subtrajectories(
                 target_acceptance_rate,
             )
             end_state_log_fs = jax.lax.cond(
-                start_step + subtraj_length == num_steps,
+                end_step == num_steps,
                 lambda _: new_log_fs,
                 lambda _: end_state_log_fs,
                 operand=None,
             )
 
         ## Return outputs
-        next_step_input = (next_states, next_log_iws, key_gen)
+        next_step_input = (next_states, next_log_iws, init_fwd_log_probs, key_gen)
         per_subtraj_outputs = (
             subtrajectories,
             fwd_log_probs,
             bwd_log_probs,
             log_fs,
             end_state_log_fs,
+            logZ_ratio,
         )
         return next_step_input, per_subtraj_outputs
 
-    # Define initial state
+    # Define initial state and per step inputs
     key, key_gen = jax.random.split(key)
     if initial_dist is not None:
         init_states = initial_dist.sample(seed=key, sample_shape=(batch_size,))
     else:
         init_states = jnp.zeros((batch_size, target.dim))
+    init_log_iws = -jnp.log(batch_size) * jnp.ones(batch_size)
     init_fwd_log_probs = init_log_prob_fn(init_states)
-    init_log_iws = -init_fwd_log_probs  # - jnp.log(batch_size)
-    init_input = (init_states, init_log_iws, key_gen)
+    init_input = (init_states, init_log_iws, init_fwd_log_probs, key_gen)
+    per_subtraj_inputs = jnp.arange(0, num_steps, subtraj_length)
 
-    # Define per step inputs
-    subtraj_start_steps = jnp.arange(0, num_steps, subtraj_length)
-    per_subtraj_inputs = subtraj_start_steps
-
+    # Scan over subtrajectories
     final_outputs, per_subtraj_outputs = jax.lax.scan(
         batch_simulate_subtrajectory, init_input, per_subtraj_inputs
     )
-
-    final_states, final_log_iws, _ = final_outputs
+    final_states, final_log_iws, _, _ = final_outputs
     # final_states.shape == (batch_size, dim)
     # final_iws.shape == (batch_size,)
-    subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, end_state_log_fs = per_subtraj_outputs
+    subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, end_state_log_fs, logZ_ratio = (
+        per_subtraj_outputs
+    )
     fwd_log_probs = fwd_log_probs.at[0, :, 0].set(fwd_log_probs[0, :, 0] + init_fwd_log_probs)
     # subtrajectories.shape == (#subtrajs, batch_size, subtraj_length, dim)
     # fwd_log_probs, bwd_log_probs, log_fs have shape (#subtrajs, batch_size, subtraj_length)
     # end_state_log_fs have shape (#subtrajs, batch_size)
+    # logZ_ratio have shape (#subtrajs,)
+
+    # These two are equivalent
+    # logZ_est = logZ_ratio.sum() + logsumexp(final_log_iws)
+    # final_log_iws = jax.nn.log_softmax(final_log_iws, axis=0) + logZ_est + jnp.log(batch_size)
+    final_log_iws = final_log_iws + logZ_ratio.sum() + jnp.log(batch_size)
 
     return (
         final_states,
