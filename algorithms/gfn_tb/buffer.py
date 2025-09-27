@@ -19,6 +19,9 @@ def get_priorities(
     target_ess: float = 0.0,
 ) -> chex.Array:
     batch_size = log_iws.shape[0]  # type: ignore
+    log_iws = jax.lax.stop_gradient(log_iws)
+    log_rewards = jax.lax.stop_gradient(log_rewards)
+    losses = jax.lax.stop_gradient(losses)
     match prioritize_by:
         case "none":
             return jnp.ones((batch_size,))

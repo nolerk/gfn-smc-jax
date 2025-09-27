@@ -367,6 +367,7 @@ def batch_simulate_fwd_subtrajectories(
     # final_states.shape == (batch_size, dim)
     # final_iws.shape == (batch_size,)
     subtrajectories, fwd_log_probs, bwd_log_probs, log_fs, end_state_log_fs = per_subtraj_outputs
+    fwd_log_probs = fwd_log_probs.at[0, :, 0].set(fwd_log_probs[0, :, 0] + init_fwd_log_probs)
     # subtrajectories.shape == (#subtrajs, batch_size, subtraj_length, dim)
     # fwd_log_probs, bwd_log_probs, log_fs have shape (#subtrajs, batch_size, subtraj_length)
     # end_state_log_fs have shape (#subtrajs, batch_size)
@@ -379,7 +380,6 @@ def batch_simulate_fwd_subtrajectories(
         bwd_log_probs,
         log_fs,
         end_state_log_fs,
-        init_fwd_log_probs,
     )
 
 
@@ -400,7 +400,6 @@ def loss_fn_subtraj(
         bwd_log_probs,
         log_fs,
         end_state_log_fs,
-        init_fwd_log_probs,
     ) = simulate_subtraj(key, model_state, params)
 
     log_rewards = end_state_log_fs[-1, :]
@@ -413,7 +412,7 @@ def loss_fn_subtraj(
     log_pfs_over_pbs = fwd_log_probs - bwd_log_probs
     end_state_log_fs = end_state_log_fs.at[-1, :].set(log_rewards * invtemp)
 
-    log_fs = log_fs.at[0, :, 0].set(params["params"]["logZ"] + init_fwd_log_probs)
+    log_fs = log_fs.at[0, :, 0].set(params["params"]["logZ"])
     log_fs = jnp.concatenate([log_fs, end_state_log_fs[:, :, None]], axis=2)
 
     # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]

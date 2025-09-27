@@ -98,6 +98,7 @@ gfn_subtb: # Sub-Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
   init_std: 20.  # for ou or ou_dds
   max_diffusion: 20.  # for pinned_brownian or ou
+  n_chunks: 16
   step_size: 1e-3
   logflow_step_size: 1e-3
   betas_step_size: 1e-3

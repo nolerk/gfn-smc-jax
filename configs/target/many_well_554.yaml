@@ -1,85 +1,77 @@
-name: funnel
-dim: 10
+name: many_well_554
+dim: 5
+m: 5
+delta: 4
 has_entropy: False
 
 fn:
-  _target_: targets.funnel.Funnel
+  _target_: targets.many_well.ManyWell2
   dim: ${target.dim}
-  log_Z: 0.
+  m: ${target.m}
+  delta: ${target.delta}
   can_sample: True
-  sample_bounds: [-30, 30]
+  sample_bounds: None
 
 # Experiment-specific algorithm parameters
 # ----------------------------------------
 
 mfvi: # Gaussian Mean Field Variational Inference
   init_std: 1.
-  step_size: 1e-2
-
-gmmvi: # Gaussian Mixture Model Variational Inference
-  init_std: .1
-
-nfvi: # Normalizing Flow Variational Inference
-  init_std: 1.
   step_size: 1e-3
 
+gmmvi: # Gaussian Mixture Model Variational Inference
+  init_std: 1.
+
 hmc:  # Hamilton Monte Carlo
-  hmc_step_size: [0.001, 0.1]
+  hmc_step_size: [0.01,0.001]
 
 smc: # Sequential Monte Carlo Sampler
   init_std: 1.
 
-smc_advanced:
+smc_rebuttal:
   init_std: 1.
   target_ess: 0.99
-  hmc_step_size: [0.1, 0.2]
+  hmc_step_size: [0.2, 0.1]
 
 flow_transport: # Flow Transport Methods (AFT/CRAFT)
   init_std: 1.
-  step_size: 1e-3
+  step_size: 1e-5
 
 fab: # Flow Annealed Importance Sampling Bootstrap
-  init_std: 1.
+  init_std: 1
   step_size: 1e-4
 
-ud_langevin:  # Underdamped Langevin Methods (UHA/LDVI)
-  max_diffusion: 1.
+scld:
+  max_diffusion: 10. # sqrt(0.01 / (1 / 16))
   init_std: 1.
-  step_size: 5e-4
-
-od_langevin:  # Overdamped Langevin Methods (ULA/MCD)
-  max_diffusion: 10.
-  init_std: 1.
-  step_size: 5e-4
+  step_size: 1e-4
+  annealing_step_size: 1e-2
+  n_sub_traj: 4
 
 cmcd:  # Controlled Monte Carlo Diffusions
-  max_diffusion: 1.
+  max_diffusion: 1. # sqrt(0.01 / (1 / 16))
   init_std: 1.
   step_size: 5e-4
-
-scld:
-  max_diffusion: 1. 
-  init_std: 1.
-  step_size: 1e-3
-  annealing_step_size: 1e-2
-  n_sub_traj: 128
 
 pis: # Path Integral Sampler
   max_diffusion: 1.
-  step_size: 5e-4
+  step_size: 1e-5
 
-dis: # Time-reversed Diffusion Sampler
+dis: # DIS
   init_std: 1.
-  step_size: 5e-4
+  step_size: 1e-5
 
 dds: # Denoising Diffusion Sampler
   init_std: 1.
-  step_size: 5e-4
+  step_size: 1e-5
 
-gbs:  # General Bridge Sampler
-  max_diffusion: 1.
+ud_langevin:  # Underdamped Langevin Methods (UHA/LDVI)
   init_std: 1.
-  step_size: 5e-4
+  step_size: 1e-3
+
+od_langevin:  # Overdamped Langevin Methods (ULA/MCD/CMCD)
+  init_std: 1.
+  step_size: 1e-3
 
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
@@ -97,7 +89,7 @@ gfn_subtb: # Sub-Trajectory Balance
   step_size: 1e-3
   logflow_step_size: 1e-3
   betas_step_size: 1e-3
-  logZ_step_size: 1e-1  # for ou or ou_dds
+  logZ_step_size: 1e-2  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2
 

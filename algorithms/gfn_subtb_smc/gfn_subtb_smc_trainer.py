@@ -197,7 +197,7 @@ def gfn_subtb_smc_trainer(cfg, target):
         # Define the function to be JIT-ed for FWD pass
         for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
-            final_states, final_log_iws, _, _, _, _, end_state_log_fs, _ = simulate_fwd_subtraj_jit(
+            final_states, final_log_iws, _, _, _, _, end_state_log_fs = simulate_fwd_subtraj_jit(
                 key, model_state, model_state.params
             )
 
@@ -241,8 +241,8 @@ def gfn_subtb_smc_trainer(cfg, target):
             if alg_cfg.smc.use and use_buffer:
                 for _ in range(alg_cfg.smc.repeat_iter):
                     key, key_gen = jax.random.split(key_gen)
-                    samples, final_log_iws, _, _, _, _, end_state_log_fs, _ = (
-                        simulate_fwd_subtraj_jit(key, model_state, model_state.params)
+                    samples, final_log_iws, _, _, _, _, end_state_log_fs = simulate_fwd_subtraj_jit(
+                        key, model_state, model_state.params
                     )
                     log_rewards = end_state_log_fs[-1, :]
 

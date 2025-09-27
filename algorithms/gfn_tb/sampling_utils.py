@@ -24,7 +24,7 @@ def binary_search_smoothing(
     target_ess: float = 0.0,
     tol=1e-3,
     max_steps=1000,
-) -> chex.Array:
+) -> tuple[chex.Array, float]:
     batch_size = log_iws.shape[0]  # type: ignore
 
     # Helper closures (JAX-friendly)

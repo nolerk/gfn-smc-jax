@@ -9,7 +9,7 @@ reference_process: ${target.gfn_subtb.reference_process}  # ou or pinned_brownia
 init_std: ${target.gfn_subtb.init_std}  # for ou
 max_diffusion: ${target.gfn_subtb.max_diffusion}  # for pinned_brownian or ou
 noise_scale: 6.  # for ou_dds
-n_chunks: 10
+n_chunks: ${target.gfn_subtb.n_chunks}
 logflow_step_size: ${target.gfn_subtb.logflow_step_size}
 partial_energy: True
 learn_betas: True
