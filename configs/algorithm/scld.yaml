@@ -1,6 +1,6 @@
 # Sequential Controlled Langevin Diffusions (SCLD)
 name: scld
-num_steps: 128  # Total number of steps / bridges. Defines the number of steps per sub-trajectory as n_steps / n_steps_per_traj
+num_steps: ${target.all.num_steps}  # Total number of steps / bridges. Defines the number of steps per sub-trajectory as n_steps / n_steps_per_traj
 n_sub_traj: ${target.scld.n_sub_traj} # 1 means no subtrajectories
 batch_size: ${target.all.batch_size}
 init_std: ${target.scld.init_std}  # Standard deviation of the prior distribution
@@ -37,7 +37,7 @@ logZ_step_size: 0.05 # Learning rate for updating log Z for second-moment loss
 init_logZ: 0. # Initial value for learnable log Z for second-moment loss
 
 # number iterations settings
-n_sim: 25000  # Outer loop iterations: Simulates the SDE + MCMC and puts samples in the buffer
+n_sim: ${target.all.iters}  # Outer loop iterations: Simulates the SDE + MCMC and puts samples in the buffer
 n_updates_per_sim: 1  # Inner loop iterations: Uses samples from the buffer to optimze the model on sub-trajectories
 
 # SMC settings

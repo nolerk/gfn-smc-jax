@@ -238,7 +238,7 @@ def gfn_subtb_smc_trainer(cfg, target):
         # Off-policy training with buffer samples
         else:
             # Sample terminal states using smc and store in buffer
-            if alg_cfg.smc.use and use_buffer:
+            if alg_cfg.smc.use:
                 for _ in range(alg_cfg.smc.repeat_iter):
                     key, key_gen = jax.random.split(key_gen)
                     samples, final_log_iws, _, _, _, _, end_state_log_fs = simulate_fwd_subtraj_jit(
