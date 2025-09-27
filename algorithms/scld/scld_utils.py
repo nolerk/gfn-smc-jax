@@ -81,6 +81,29 @@ def flattened_traversal(fn):
 
 
 def make_lr_scheduler(cfg):
+    # Priority: use an explicit lr_schedule if provided (supports multistep for fair comparison)
+    sched_cfg = getattr(cfg, "lr_schedule", None)
+    if sched_cfg is not None:
+        sched_type = getattr(sched_cfg, "type", "constant")
+        if sched_type == "constant":
+            return optax.constant_schedule(cfg.step_size)
+        elif sched_type == "multistep":
+            milestones = getattr(sched_cfg, "milestones", [])
+            gamma = getattr(sched_cfg, "gamma", 1.0)
+            milestones_arr = jnp.array(milestones, dtype=jnp.int32) if len(milestones) > 0 else None
+
+            def multistep_fn(step):
+                if milestones_arr is None:
+                    num_decays = 0
+                else:
+                    num_decays = jnp.sum(step >= milestones_arr)
+                return cfg.step_size * (gamma**num_decays)
+
+            return multistep_fn
+        else:
+            raise ValueError(f"Invalid learning rate scheduler type: {sched_type}")
+
+    # Backward-compatible behavior (warmup/decay flags)
     if (cfg.use_warmup is False) and (cfg.use_decay is False):
         return optax.constant_schedule(cfg.step_size)
 
