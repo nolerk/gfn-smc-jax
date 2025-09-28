@@ -51,7 +51,7 @@ def get_eval_fn(rnd, target, target_xs, cfg):
 
         log_is_weights = -(running_costs + stochastic_costs + terminal_costs)
         ln_z = jax.scipy.special.logsumexp(log_is_weights) - jnp.log(cfg.eval_samples)
-        elbo = -jnp.mean(running_costs + terminal_costs)
+        elbo = jnp.mean(log_is_weights)
         log_var = jnp.var(running_costs + terminal_costs, ddof=0)
 
         if target.log_Z is not None:
@@ -74,14 +74,13 @@ def get_eval_fn(rnd, target, target_xs, cfg):
                 fwd_terminal_costs,
             ) = rnd_forward(jax.random.PRNGKey(0), model_state, *params)[:4]
             fwd_log_is_weights = -(fwd_running_costs + fwd_stochastic_costs + fwd_terminal_costs)
-            fwd_ln_z = -(
-                jax.scipy.special.logsumexp(-fwd_log_is_weights) - jnp.log(cfg.eval_samples)
-            )
+            fwd_ln_z = jax.scipy.special.logsumexp(fwd_log_is_weights) - jnp.log(cfg.eval_samples)
+            eubo = jnp.mean(fwd_log_is_weights)
+
             fwd_ess = jnp.exp(
                 fwd_ln_z
                 - (jax.scipy.special.logsumexp(fwd_log_is_weights) - jnp.log(cfg.eval_samples))
             )
-            eubo = jnp.mean(fwd_log_is_weights)
 
             if target.log_Z is not None:
                 logger["logZ/delta_forward"].append(jnp.abs(fwd_ln_z - target.log_Z))

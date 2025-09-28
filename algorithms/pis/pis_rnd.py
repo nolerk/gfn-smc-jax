@@ -67,22 +67,22 @@ def per_sample_rnd(
         """
         Takes samples from the target and moves them to the prior
         """
-        x, sigma_int, key_gen = state
+        x_new, sigma_int, key_gen = state
         step = per_step_input
+        t_next = (num_steps - (step - 1)) / num_steps
 
         sigma_t = sigmas(step)
         sigma_int += sigma_t**2 * dt
-        t = step / num_steps
-        shrink = (t - dt) / t
+        shrink = (t_next - dt) / t_next
 
         step = step.astype(jnp.float32)
         if stop_grad:
-            x = jax.lax.stop_gradient(x)
+            x_new = jax.lax.stop_gradient(x_new)
 
         key, key_gen = jax.random.split(key_gen)
-        noise = jnp.clip(jax.random.normal(key, shape=x.shape), -4, 4)
+        noise = jnp.clip(jax.random.normal(key, shape=x_new.shape), -4, 4)
 
-        x_new = shrink * x + noise * sigma_t * jnp.sqrt(shrink * dt) + 1e-8
+        x = shrink * x_new + noise * sigma_t * jnp.sqrt(shrink * dt)
 
         # Compute SDE components
         if use_lp:
@@ -92,11 +92,12 @@ def per_sample_rnd(
         model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
 
         # Compute (running) Radon-Nikodym derivative components
-        running_cost = -0.5 * jnp.square(jnp.linalg.norm(model_output)) * dt
-        stochastic_cost = (model_output * noise).sum() * jnp.sqrt(dt)
+        running_cost = 0.5 * jnp.square(jnp.linalg.norm(model_output)) * dt
+        fwd_noise = (1 / (sigma_t * jnp.sqrt(dt))) * (x_new - (x + sigma_t * dt * model_output))
+        stochastic_cost = (model_output * fwd_noise).sum() * jnp.sqrt(dt)
 
-        next_state = (x_new, sigma_int, key_gen)
-        per_step_output = (running_cost, stochastic_cost, x_new)
+        next_state = (x, sigma_int, key_gen)
+        per_step_output = (running_cost, stochastic_cost, x)
         return next_state, per_step_output
 
     key, key_gen = jax.random.split(seed)
@@ -106,22 +107,20 @@ def per_sample_rnd(
         aux, per_step_output = jax.lax.scan(
             simulate_prior_to_target, aux, jnp.arange(1, num_steps + 1)[::-1]
         )
-        final_x, final_sigma, _ = aux
-        terminal_cost = ref_log_prob(final_x, jnp.sqrt(final_sigma)) - target_log_prob(final_x)
+        terminal_x, final_sigma, _ = aux
     else:
-        init_x = terminal_x
-        if init_x is None:
-            init_x = jnp.squeeze(target.sample(key, (1,)))
+        if terminal_x is None:
+            terminal_x = jnp.squeeze(target.sample(key, (1,)))
         key, key_gen = jax.random.split(key_gen)
-        aux = (init_x, jnp.array(0.0), key)
+        aux = (terminal_x, jnp.array(0.0), key)
         aux, per_step_output = jax.lax.scan(
             simulate_target_to_prior, aux, jnp.arange(1, num_steps + 1)
         )
-        final_x, final_sigma, _ = aux
-        terminal_cost = ref_log_prob(init_x, jnp.sqrt(final_sigma)) - target_log_prob(init_x)
+        init_x, final_sigma, _ = aux
 
+    terminal_cost = ref_log_prob(terminal_x, jnp.sqrt(final_sigma)) - target_log_prob(terminal_x)
     running_cost, stochastic_cost, x_t = per_step_output
-    return final_x, running_cost, stochastic_cost, terminal_cost, x_t
+    return terminal_x, running_cost, stochastic_cost, terminal_cost, x_t
 
 
 def rnd(
