@@ -99,6 +99,11 @@ def get_train_fn(alg_name):
 
         return gfn_tb_trainer
 
+    elif alg_name == "gfn_tb_iw":
+        from algorithms.gfn_tb.gfn_tb_iw_trainer import gfn_tb_iw_trainer
+
+        return gfn_tb_iw_trainer
+
     elif alg_name == "gfn_subtb":
         from algorithms.gfn_subtb.gfn_subtb_trainer import gfn_subtb_trainer
 
@@ -108,6 +113,13 @@ def get_train_fn(alg_name):
         from algorithms.gfn_subtb_smc.gfn_subtb_smc_trainer import gfn_subtb_smc_trainer
 
         return gfn_subtb_smc_trainer
+
+    elif alg_name == "gfn_subtb_smc_nobuffer":
+        from algorithms.gfn_subtb_smc.gfn_subtb_smc_nobuffer_trainer import (
+            gfn_subtb_smc_nobuffer_trainer,
+        )
+
+        return gfn_subtb_smc_nobuffer_trainer
 
     else:
         raise ValueError(f"No algorithm named {alg_name}.")

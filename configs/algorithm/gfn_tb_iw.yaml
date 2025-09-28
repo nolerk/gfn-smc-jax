@@ -1,5 +1,5 @@
 # Generative Flow Networks (GFN) with Trajectory Balance (TB) loss
-name: gfn_tb
+name: gfn_tb_iw
 step_size: ${target.gfn_tb.step_size}
 batch_size: ${target.all.batch_size}
 iters: ${target.all.iters}
@@ -13,6 +13,8 @@ init_std: ${target.gfn_tb.init_std}  # for ou
 max_diffusion: ${target.gfn_tb.max_diffusion}  # for pinned_brownian or ou
 noise_scale: 6.  # for ou_dds
 init_invtemp: 1.
+iw_train_freq: 1  # number of importance-weighted training steps per on-policy training step
+target_ess: 0.1  # target ESS for importance weighting
 
 # Learning rate scheduler
 lr_schedule:
@@ -32,15 +34,3 @@ model:
 
 noise_schedule:
   reverse: False
-
-buffer:
-  use: True
-  max_length_in_batches: 100
-  prioritize_by: "piw"  # none, reward, loss, uiw, piw
-  target_ess: 0.1
-  sampling_method: "systematic"  # multinomial, stratified, systematic, rank
-  rank_k: 0.01  # only used if sampling_method is rank
-  sample_with_replacement: True
-  prefill_steps: 100  # collect `prefill_steps` batches before starting training
-  bwd_to_fwd_ratio: 2  # number of bwd steps per fwd step
-  update_score: False

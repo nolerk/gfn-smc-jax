@@ -19,21 +19,19 @@ from algorithms.gfn_subtb.visualise import (
 )
 from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn_joint, loss_fn_subtb, rnd
 from algorithms.gfn_subtb_smc.gfn_subtb_smc_rnd import batch_simulate_fwd_subtrajectories
-from algorithms.gfn_tb.buffer import build_terminal_state_buffer
 from algorithms.gfn_tb.sampling_utils import get_sampling_func
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
 from utils.print_utils import print_results
 
 
-def gfn_subtb_smc_trainer(cfg, target):
+def gfn_subtb_smc_nobuffer_trainer(cfg, target):
     key_gen = jax.random.PRNGKey(cfg.seed)
 
     dim = target.dim
     alg_cfg = cfg.algorithm
     smc_cfg = alg_cfg.smc
     mcmc_cfg = alg_cfg.mcmc
-    buffer_cfg = alg_cfg.buffer
     batch_size = alg_cfg.batch_size
     num_steps = alg_cfg.num_steps
     n_chunks = alg_cfg.n_chunks
@@ -63,20 +61,6 @@ def gfn_subtb_smc_trainer(cfg, target):
             aux_tuple = (*aux_tuple, noise_schedule)
     else:
         raise ValueError(f"Reference process {reference_process} not supported.")
-
-    # Initialize the buffer
-    use_buffer = buffer_cfg.use
-    buffer = buffer_state = None
-    if use_buffer:
-        buffer = build_terminal_state_buffer(
-            dim=dim,
-            max_length=buffer_cfg.max_length_in_batches * batch_size,
-            prioritize_by=buffer_cfg.prioritize_by,
-            target_ess=buffer_cfg.target_ess,
-            sampling_method=buffer_cfg.sampling_method,
-            rank_k=buffer_cfg.rank_k,
-        )
-        buffer_state = buffer.init(dtype=target_xs.dtype, device=target_xs.device)
 
     # Initialize the model
     key, key_gen = jax.random.split(key_gen)
@@ -192,23 +176,6 @@ def gfn_subtb_smc_trainer(cfg, target):
             step=0,
         )
 
-    ### Prefill phase
-    if use_buffer and buffer_cfg.prefill_steps > 0:
-        # Define the function to be JIT-ed for FWD pass
-        for _ in range(buffer_cfg.prefill_steps):
-            key, key_gen = jax.random.split(key_gen)
-            final_states, final_log_iws, _, _, _, _, end_state_log_fs = simulate_fwd_subtraj_jit(
-                key, model_state, model_state.params
-            )
-
-            buffer_state = buffer.add(
-                buffer_state,
-                final_states,
-                final_log_iws,
-                end_state_log_fs[-1, :],
-                jnp.zeros_like(final_log_iws),  # loss-prioritized buffer should not be used here
-            )
-
     tb_losses = jnp.zeros(batch_size)  # to avoid error in wandb logging
     ### Training phase
     for it in range(alg_cfg.iters):
@@ -217,7 +184,7 @@ def gfn_subtb_smc_trainer(cfg, target):
         )
 
         # On-policy training with forward samples
-        if not use_buffer or it % (buffer_cfg.bwd_to_fwd_ratio + 1) == 0:
+        if it % (smc_cfg.bwd_to_fwd_ratio + 1) == 0:
             # Sample from model
             key, key_gen = jax.random.split(key_gen)
             grads, (trajectories, log_pbs_over_pfs, log_rewards, tb_losses, subtb_losses) = (
@@ -225,37 +192,14 @@ def gfn_subtb_smc_trainer(cfg, target):
             )
             model_state = model_state.apply_gradients(grads=grads)
 
-            # Add samples to buffer
-            if use_buffer:
-                buffer_state = buffer.add(
-                    buffer_state,
-                    trajectories[:, -1],
-                    (log_pbs_over_pfs.sum(-1) + log_rewards),
-                    log_rewards,
-                    jnp.zeros_like(log_rewards),  # loss-prioritized buffer should not be used here
-                )
-
-        # Off-policy training with buffer samples
+        # Off-policy training with smc samples
         else:
-            # Sample terminal states using smc and store in buffer
-            if alg_cfg.smc.use:
-                key, key_gen = jax.random.split(key_gen)
-                samples, final_log_iws, _, _, _, _, end_state_log_fs = simulate_fwd_subtraj_jit(
-                    key, model_state, model_state.params
-                )
-                log_rewards = end_state_log_fs[-1, :]
-
-                buffer_state = buffer.add(
-                    buffer_state,
-                    samples,
-                    final_log_iws,
-                    log_rewards,
-                    jnp.zeros_like(final_log_iws),
-                )
-
-            # Sample terminal states from buffer
+            # Sample terminal states using smc
             key, key_gen = jax.random.split(key_gen)
-            samples, log_rewards, indices = buffer.sample(buffer_state, key, batch_size)
+            samples, final_log_iws, _, _, _, _, end_state_log_fs = simulate_fwd_subtraj_jit(
+                key, model_state, model_state.params
+            )
+            log_rewards = end_state_log_fs[-1, :]
 
             # Get grads with the off-policy samples
             key, key_gen = jax.random.split(key_gen)
@@ -263,16 +207,6 @@ def gfn_subtb_smc_trainer(cfg, target):
                 key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
             )
             model_state = model_state.apply_gradients(grads=grads)
-
-            # Update scores in buffer if needed
-            if buffer_cfg.update_score:
-                buffer_state = buffer.update_priority(
-                    buffer_state,
-                    indices,
-                    (log_pbs_over_pfs.sum(-1) + log_rewards),
-                    log_rewards,
-                    jnp.zeros_like(log_rewards),  # loss-prioritized buffer should not be used here
-                )
 
         if cfg.use_wandb:
             log_dict = {
@@ -308,46 +242,6 @@ def gfn_subtb_smc_trainer(cfg, target):
                     target.log_prob,
                 )
                 logger.update(vis_dict)
-
-            # Evaluate buffer samples
-            if use_buffer:
-                from eval import discrepancies
-
-                buffer_xs, _, _ = buffer.sample(buffer_state, key, cfg.eval_samples)
-
-                for d in cfg.discrepancies:
-                    if logger.get(f"discrepancies/buffer_samples_{d}", None) is None:
-                        logger[f"discrepancies/buffer_samples_{d}"] = []
-                    logger[f"discrepancies/buffer_samples_{d}"].append(
-                        getattr(discrepancies, f"compute_{d}")(target_xs, buffer_xs, cfg)
-                        if target_xs is not None
-                        else jnp.inf
-                    )
-                if cfg.use_wandb:
-                    vis_dict = target.visualise(samples=buffer_xs)
-                    logger.update(
-                        {f"{key}_buffer_samples": value for key, value in vis_dict.items()}
-                    )
-
-            # # Evaluate smc samples
-            # if alg_cfg.smc.use:
-            #     from eval import discrepancies
-
-            #     smc_xs, _, _, _, _, _, _, _ = simulate_subtraj_fwd(
-            #         key, model_state, model_state.params
-            #     )
-
-            #     for d in cfg.discrepancies:
-            #         if logger.get(f"discrepancies/smc_samples_{d}", None) is None:
-            #             logger[f"discrepancies/smc_samples_{d}"] = []
-            #         logger[f"discrepancies/smc_samples_{d}"].append(
-            #             getattr(discrepancies, f"compute_{d}")(target_xs, smc_xs, cfg)
-            #             if target_xs is not None
-            #             else jnp.inf
-            #         )
-            #     if cfg.use_wandb:
-            #         vis_dict = target.visualise(samples=smc_xs)
-            #         logger.update({f"{key}_smc_samples": value for key, value in vis_dict.items()})
 
             print_results(it, logger, cfg)
 

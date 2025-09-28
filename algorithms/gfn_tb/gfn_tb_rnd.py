@@ -7,6 +7,7 @@ import numpyro.distributions as npdist
 from flax.training.train_state import TrainState
 
 from algorithms.common.types import Array, RandomKey, ModelParams
+from algorithms.gfn_tb.sampling_utils import binary_search_smoothing
 
 
 def sample_kernel(key_gen, mean, scale):
@@ -324,6 +325,8 @@ def loss_fn(
     invtemp: float = 1.0,
     logr_clip: float = -1e5,
     huber_delta: float | None = None,
+    importance_weighting: bool = False,
+    target_ess: float = 0.0,
 ):
     terminal_xs, running_costs, _, terminal_costs = rnd_partial(key, model_state, params)
     log_rewards = jnp.where(
@@ -346,7 +349,12 @@ def loss_fn(
     else:
         losses = jnp.square(losses)
 
-    return jnp.mean(losses), (
+    if importance_weighting:
+        smoothed_log_iws, _ = binary_search_smoothing(-log_ratio, target_ess)
+        normalized_iws = jax.nn.softmax(smoothed_log_iws, axis=-1)
+        losses = losses * normalized_iws
+
+    return jnp.sum(losses), (
         terminal_xs,
         jax.lax.stop_gradient(-running_costs),  # log_pbs - log_pfs
         -terminal_costs,  # log_rewards

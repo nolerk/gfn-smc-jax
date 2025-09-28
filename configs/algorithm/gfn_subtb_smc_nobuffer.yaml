@@ -1,5 +1,5 @@
 # Generative Flow Networks (GFN) with Trajectory Balance (TB) loss
-name: gfn_subtb_smc
+name: gfn_subtb_smc_nobuffer
 step_size: ${target.gfn_subtb.step_size}
 batch_size: ${target.all.batch_size}
 iters: ${target.all.iters}
@@ -42,23 +42,12 @@ model:
 noise_schedule:
   reverse: False
 
-buffer:
-  use: True
-  max_length_in_batches: 100
-  prioritize_by: "piw"  # none, reward, loss, uiw, piw
-  target_ess: 0.1
-  sampling_method: "systematic"  # multinomial, stratified, systematic, rank
-  rank_k: 0.01  # only used if sampling_method is rank
-  sample_with_replacement: True
-  prefill_steps: 100  # collect `prefill_steps` batches before starting training
-  bwd_to_fwd_ratio: 2  # number of bwd steps per fwd step
-  update_score: False
-
 smc:
   use: True
   resample_threshold: 0.20
   target_ess: 0.1
   sampling_method: systematic
+  bwd_to_fwd_ratio: 2  # number of bwd steps per fwd step
 
 mcmc:
   use: False
