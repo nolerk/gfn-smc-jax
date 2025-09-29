@@ -66,15 +66,7 @@ scld:
   annealing_step_size: 1e-2
   n_sub_traj: 4
 
-pis: # Path Integral Sampler
-  max_diffusion: 1.
-  step_size: 5e-4
-
 dis: # Time-reversed Diffusion Sampler
-  init_std: 1.
-  step_size: 5e-4
-
-dds: # Denoising Diffusion Sampler
   init_std: 1.
   step_size: 5e-4
 
@@ -82,6 +74,17 @@ gbs:  # General Bridge Sampler
   max_diffusion: 1.
   init_std: 1.
   step_size: 5e-4
+
+######## HYPERPARAMETERS USED IN OUR PAPER ########
+# These can be different from the original settings
+
+pis: # Path Integral Sampler
+  max_diffusion: 1.
+  step_size: 1e-3
+
+dds: # Denoising Diffusion Sampler
+  init_std: 1.
+  step_size: 1e-3
 
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
@@ -106,6 +109,7 @@ gfn_subtb: # Sub-Trajectory Balance
 all: # Parameters that are shared between all algorithms
   batch_size: 2000
   iters: 20000
+  milestones: [10000, 15000]
   num_steps: 64
   use_lp: False
   num_hid: 256
