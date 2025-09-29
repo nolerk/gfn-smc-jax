@@ -25,7 +25,7 @@ learn_flow_iters: 400  # used if loss_type is in [tb_subtb_alt, lv_subtb_alt]
 # Learning rate scheduler
 lr_schedule:
   type: multistep  # multistep | cosine | constant
-  milestones: [20000, 30000]  # iteration indices at which to decay
+  milestones: ${target.all.milestones}  # iteration indices at which to decay
   gamma: 0.3  # multiply LR by gamma at each milestone
 
 defaults:

@@ -517,10 +517,10 @@ def scld_trainer(cfg, target):
     )
 
     logger = {}
-    eval_freq = alg_cfg.n_sim * alg_cfg.n_updates_per_sim // cfg.n_evals
+    eval_freq = alg_cfg.iters * alg_cfg.n_updates_per_sim // cfg.n_evals
 
     if eval_freq == 0:
-        eval_freq = alg_cfg.n_sim - 1
+        eval_freq = alg_cfg.iters - 1
 
     if alg_cfg.buffer.use_buffer == False:
         """
@@ -596,7 +596,7 @@ def scld_trainer(cfg, target):
         else:
             raise NotImplementedError
 
-        for i in range(alg_cfg.n_sim):
+        for i in range(alg_cfg.iters):
             key, key_gen = jax.random.split(key_gen)
 
             (loss, aux), grads = loss_fn(key, model_state, model_state.params)
@@ -606,7 +606,7 @@ def scld_trainer(cfg, target):
                 # note for KL, loss is also the negative ELBO
                 wandb.log({"stats/n_inner_its": i, "stats/n_sims": i, "loss": loss})
 
-            if i % eval_freq == 0 or i + 1 == alg_cfg.n_sim:
+            if i % eval_freq == 0 or i + 1 == alg_cfg.iters:
                 key, key_gen = jax.random.split(key_gen)
                 logger.update(eval_fn(model_state, model_state.params, key, i))
                 logger["stats/step"] = i
@@ -682,7 +682,7 @@ def scld_trainer(cfg, target):
             in_axes=(0, 0, 0, None, None, 0, 0, 0),
         )
 
-        for i in range(alg_cfg.n_sim):
+        for i in range(alg_cfg.iters):
             key, key_gen = jax.random.split(key_gen)
             (
                 sim_samples,
@@ -760,7 +760,7 @@ def scld_trainer(cfg, target):
                         step=i,
                     )
 
-            if i % eval_freq == 0 or i + 1 == alg_cfg.n_sim:
+            if i % eval_freq == 0 or i + 1 == alg_cfg.iters:
                 key, key_gen = jax.random.split(key_gen)
                 logger.update(eval_fn(model_state, model_state.params, key, i))
                 logger["stats/step"] = i

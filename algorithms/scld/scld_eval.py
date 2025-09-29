@@ -61,7 +61,7 @@ def eval_scld(simulate, simulate_smc, get_schedule_and_prior_fn, target, target_
         """
         logger = {}
 
-        is_finished = it_num + 1 == config.algorithm.n_sim
+        is_finished = it_num + 1 == config.algorithm.iters
 
         (
             model_samples_all,

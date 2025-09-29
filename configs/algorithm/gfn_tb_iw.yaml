@@ -19,7 +19,7 @@ target_ess: 0.1  # target ESS for importance weighting
 # Learning rate scheduler
 lr_schedule:
   type: multistep  # multistep | cosine | constant
-  milestones: [20000, 30000]  # iteration indices at which to decay
+  milestones: ${target.all.milestones}  # iteration indices at which to decay
   gamma: 0.3  # multiply LR by gamma at each milestone
 
 defaults:

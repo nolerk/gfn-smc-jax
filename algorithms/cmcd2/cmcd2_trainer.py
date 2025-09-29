@@ -89,10 +89,42 @@ def cmcd2_trainer(cfg, target):
 
     aux_tuple = (prior_sampler, prior_log_prob, get_betas)
 
+    def build_lr_schedule(base_lr):
+        sched_cfg = getattr(alg_cfg, "lr_schedule", None)
+        if sched_cfg is None:
+            return lambda step: base_lr
+
+        sched_type = getattr(sched_cfg, "type", "constant")
+        match sched_type:
+            case "constant":
+                return lambda step: base_lr
+            case "multistep":
+                milestones_arr = (
+                    jnp.array(sched_cfg.milestones, dtype=jnp.int32)
+                    if len(sched_cfg.milestones) > 0
+                    else None
+                )
+
+                def multistep_fn(step):
+                    if milestones_arr is None:
+                        num_decays = 0
+                    else:
+                        num_decays = jnp.sum(step >= milestones_arr)
+                    return base_lr * (sched_cfg.gamma**num_decays)
+
+                return multistep_fn
+            case "cosine":
+                decay_steps = max(alg_cfg.iters, 1)
+                return optax.cosine_decay_schedule(
+                    init_value=base_lr, decay_steps=decay_steps, alpha=sched_cfg.end_factor
+                )
+            case _:
+                raise ValueError(f"Invalid learning rate scheduler type: {sched_type}")
+
     optimizer = optax.chain(
         optax.zero_nans(),
         optax.clip(alg_cfg.grad_clip),
-        optax.adam(learning_rate=alg_cfg.step_size),
+        optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size)),
     )
 
     model_state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)

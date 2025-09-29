@@ -59,6 +59,11 @@ def get_train_fn(alg_name):
 
         return cmcd_trainer
 
+    elif alg_name == "cmcd2":
+        from algorithms.cmcd2.cmcd2_trainer import cmcd2_trainer
+
+        return cmcd2_trainer
+
     elif alg_name == "scld":
         from algorithms.scld.scld_trainer import scld_trainer
 

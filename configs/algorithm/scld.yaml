@@ -22,7 +22,7 @@ prior:
 step_size: ${target.scld.step_size}   # Learning rate or peak_lr if scheduling
 lr_schedule:
   type: multistep
-  milestones: [20000, 30000]
+  milestones: ${target.all.milestones}
   gamma: 0.3
 use_warmup: False
 num_warmup_steps: 1000
@@ -41,7 +41,7 @@ logZ_step_size: 0.05 # Learning rate for updating log Z for second-moment loss
 init_logZ: 0. # Initial value for learnable log Z for second-moment loss
 
 # number iterations settings
-n_sim: ${target.all.iters}  # Outer loop iterations: Simulates the SDE + MCMC and puts samples in the buffer
+iters: ${target.all.iters}  # Outer loop iterations: Simulates the SDE + MCMC and puts samples in the buffer
 n_updates_per_sim: 1  # Inner loop iterations: Uses samples from the buffer to optimze the model on sub-trajectories
 
 # SMC settings

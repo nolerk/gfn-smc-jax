@@ -28,7 +28,7 @@ def get_priorities(
         case "reward":
             return log_rewards
         case "loss":  # TB loss
-            return losses.log()
+            return jnp.log(losses)
         case "uiw":
             if target_ess > 0.0:
                 log_iws, _ = binary_search_smoothing(log_iws, target_ess)

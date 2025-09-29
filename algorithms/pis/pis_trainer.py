@@ -44,7 +44,7 @@ def pis_trainer(cfg, target):
         num_steps=cfg.algorithm.num_steps,
         noise_schedule=cfg.algorithm.noise_schedule,
         use_lp=alg_cfg.model.use_lp,
-        stop_grad=True,
+        stop_grad=False,
     )
 
     eval_fn, logger = get_eval_fn(rnd_short, target, target_samples, cfg)
