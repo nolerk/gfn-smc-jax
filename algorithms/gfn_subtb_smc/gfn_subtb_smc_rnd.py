@@ -63,11 +63,11 @@ def per_sample_subtraj_rnd_ou_dds(
     timestep_tup: tuple[int, int],  # (start_step, subtraj_length)
     use_lp: bool,
     partial_energy: bool,
-    learn_betas: bool,
+    beta_schedule: Literal["learnt", "linear", "cosine"],
     prior_to_target: bool = True,
 ):
     init_std, init_log_prob_fn, alpha_fn, lambda_fn = aux_tuple
-    beta_fn = get_beta_fn(params, learn_betas, num_steps, lambda_fn)
+    beta_fn = get_beta_fn(params, beta_schedule, num_steps, lambda_fn)
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -217,7 +217,7 @@ def batch_simulate_fwd_subtrajectories(
         tuple,  # aux_tuple; for ou_dds, (init_std, initial_dist.log_prob, alpha_fn, lambda_fn)
         bool,  # use_lp
         bool,  # partial_energy
-        bool,  # learn_betas
+        Literal["learnt", "linear", "cosine"],  # beta_schedule
     ],
     smc_configs: tuple[
         bool,  # use
@@ -237,7 +237,7 @@ def batch_simulate_fwd_subtrajectories(
     assert num_steps % num_subtrajs == 0
     subtraj_length = num_steps // num_subtrajs
 
-    reference_process, aux_tuple, use_lp, partial_energy, learn_betas = sampling_configs
+    reference_process, aux_tuple, use_lp, partial_energy, beta_schedule = sampling_configs
     use_resampling, resample_threshold, sampling_func, target_ess = smc_configs
     use_mcmc, chain_length, step_size, n_burnin, adapt, target_acceptance_rate = mcmc_configs
     init_log_prob_fn = lambda s: (
@@ -247,7 +247,7 @@ def batch_simulate_fwd_subtrajectories(
     log_f_fn_partial = None
     if use_mcmc:
         lambda_fn = aux_tuple[3] if reference_process == "ou_dds" else None
-        beta_fn = get_beta_fn(params, learn_betas, num_steps, lambda_fn)
+        beta_fn = get_beta_fn(model_state.params, beta_schedule, num_steps, lambda_fn)
 
         log_f_fn_partial = partial(
             get_log_f,
@@ -296,7 +296,7 @@ def batch_simulate_fwd_subtrajectories(
             (start_step, subtraj_length),
             use_lp,
             partial_energy,
-            learn_betas,
+            beta_schedule,
             True,  # prior_to_target
         )
 

@@ -9,17 +9,21 @@ from algorithms.common.types import Array, RandomKey, ModelParams
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
 
 
-def get_beta_fn(params, learn_betas, num_steps, lambda_fn=None):
-    if learn_betas:
+def get_beta_fn(
+    params, beta_schedule: Literal["learnt", "linear", "cosine"], num_steps, lambda_fn=None
+):
+    if beta_schedule == "learnt":
         b = jax.nn.softplus(params["params"]["betas"])
         b = jnp.cumsum(b) / jnp.sum(b)
         b = jnp.concatenate((jnp.array([0]), b))
         beta_fn = lambda step: b[step]
+    elif beta_schedule == "cosine":
+        assert lambda_fn is not None
+        beta_fn = lambda step: (1 - lambda_fn(step))
+    elif beta_schedule == "linear":
+        beta_fn = lambda step: step / num_steps
     else:
-        if lambda_fn is not None:
-            beta_fn = lambda step: (1 - lambda_fn(step))
-        else:
-            beta_fn = lambda step: step / num_steps
+        raise NotImplementedError(f"Beta schedule {beta_schedule} not implemented.")
     return beta_fn
 
 
@@ -45,11 +49,11 @@ def per_sample_rnd_pinned_brownian(
     num_steps,
     use_lp,
     partial_energy,
-    learn_betas,
+    beta_schedule: Literal["learnt", "linear", "cosine"],
     prior_to_target=True,
 ):
     dim, noise_schedule = aux_tuple
-    beta_fn = get_beta_fn(params, learn_betas, num_steps)
+    beta_fn = get_beta_fn(params, beta_schedule, num_steps)
     dt = 1.0 / num_steps
 
     def simulate_prior_to_target(state, per_step_input):
@@ -190,7 +194,7 @@ def per_sample_rnd_ou(
     num_steps,
     use_lp,
     partial_energy,
-    learn_betas,
+    beta_schedule: Literal["learnt", "linear", "cosine"],
     prior_to_target=True,
 ):
     raise NotImplementedError("OU reference process not implemented yet.")
@@ -206,11 +210,11 @@ def per_sample_rnd_ou_dds(
     num_steps,
     use_lp,
     partial_energy,
-    learn_betas,
+    beta_schedule: Literal["learnt", "linear", "cosine"],
     prior_to_target=True,
 ):
     init_std, init_log_prob, alpha_fn, lambda_fn = aux_tuple
-    beta_fn = get_beta_fn(params, learn_betas, num_steps, lambda_fn)
+    beta_fn = get_beta_fn(params, beta_schedule, num_steps, lambda_fn)
 
     def simulate_prior_to_target(state, per_step_input):
         s, key_gen = state
@@ -321,7 +325,7 @@ def rnd(
     num_steps,
     use_lp,
     partial_energy,
-    learn_betas,
+    beta_schedule: Literal["learnt", "linear", "cosine"],
     prior_to_target=True,
     initial_dist: distrax.Distribution | None = None,
     terminal_xs: Array | None = None,
@@ -357,7 +361,7 @@ def rnd(
         num_steps,
         use_lp,
         partial_energy,
-        learn_betas,
+        beta_schedule,
         prior_to_target,
     )
 

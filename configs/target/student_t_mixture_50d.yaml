@@ -95,7 +95,7 @@ gfn_subtb: # Sub-Trajectory Balance
   n_chunks: 32
   step_size: 1e-3
   logflow_step_size: 1e-3
-  betas_step_size: 1e-1
+  beta_step_size: 1e-1
   logZ_step_size: 1e-1  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2
@@ -103,6 +103,7 @@ gfn_subtb: # Sub-Trajectory Balance
 all: # Parameters that are shared between all algorithms
   batch_size: 2000
   iters: 40000
+  milestones: [20000, 30000]
   num_steps: 128
   use_lp: True
   num_hid: 64

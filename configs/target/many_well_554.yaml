@@ -28,7 +28,7 @@ hmc:  # Hamilton Monte Carlo
 smc: # Sequential Monte Carlo Sampler
   init_std: 1.
 
-smc_rebuttal:
+smc_advanced:
   init_std: 1.
   target_ess: 0.99
   hmc_step_size: [0.2, 0.1]
@@ -88,7 +88,7 @@ gfn_subtb: # Sub-Trajectory Balance
   n_chunks: 16
   step_size: 1e-3
   logflow_step_size: 1e-3
-  betas_step_size: 1e-1
+  beta_step_size: 1e-1
   logZ_step_size: 1e-1  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2

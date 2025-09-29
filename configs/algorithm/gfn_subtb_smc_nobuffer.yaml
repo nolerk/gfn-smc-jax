@@ -12,8 +12,8 @@ noise_scale: 6.  # for ou_dds
 n_chunks: ${target.gfn_subtb.n_chunks}
 logflow_step_size: ${target.gfn_subtb.logflow_step_size}
 partial_energy: True
-learn_betas: True
-betas_step_size: ${target.gfn_subtb.betas_step_size}
+beta_schedule: learnt  # learnt, linear, cosine
+beta_step_size: ${target.gfn_subtb.beta_step_size}
 init_logZ: ${target.gfn_subtb.init_logZ}  # for ou or ou_dds
 logZ_step_size: ${target.gfn_subtb.logZ_step_size}  # for ou or ou_dds
 init_invtemp: 1.

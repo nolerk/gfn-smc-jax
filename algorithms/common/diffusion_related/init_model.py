@@ -86,10 +86,10 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             optimizers_map["logflow_optim"] = optax.adam(
                 learning_rate=build_lr_schedule(alg_cfg.logflow_step_size)
             )
-            if alg_cfg.learn_betas:
+            if alg_cfg.beta_schedule == "learnt":
                 params["params"]["betas"] = jnp.ones((alg_cfg.num_steps,))
                 optimizers_map["betas_optim"] = optax.adam(
-                    learning_rate=build_lr_schedule(alg_cfg.betas_step_size)
+                    learning_rate=build_lr_schedule(alg_cfg.beta_step_size)
                 )
 
         if (
