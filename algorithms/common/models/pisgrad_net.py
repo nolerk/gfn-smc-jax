@@ -195,7 +195,7 @@ class PISGRADNet(nn.Module):
             lgv_term = jnp.clip(lgv_term, -self.inner_clip, self.inner_clip)
             out_state = out_state + t_net2 * lgv_term
 
-        log_flow = None
+        log_flow = jnp.array(0.0)
         if self.learn_flow:
             assert self.flow_state_time_net is not None
             if not self.share_embeddings:

@@ -59,7 +59,7 @@ def visualise_intermediate_distribution(
     batch_size: int,
     reference_process: str,  # for flow bias
     noise_schedule: Callable[[float], float],  # for flow bias
-    lambda_fn: Callable[[int], float],  # for flow bias
+    beta_fn: Callable[[int], float],  # for flow bias
     initial_dist: distrax.Distribution | None,  # for flow bias
     target_log_prob_fn: Callable[[chex.Array], chex.Array],  # for flow bias
 ) -> dict:
@@ -75,22 +75,17 @@ def visualise_intermediate_distribution(
         flow_bias_fn = None
         if partial_energy:
             if reference_process == "pinned_brownian":
-                weight = t
                 sigma_t = noise_schedule(step)
                 ref_log_prob_fn: Callable[[chex.Array], chex.Array] = partial(
                     ref_log_prob_pinned_brownian, t=t, sigma_t=sigma_t
                 )
-            elif reference_process == "ou":
-                # TODO
-                raise NotImplementedError
-            elif reference_process == "ou_dds":
+            elif reference_process in ["ou", "ou_dds"]:
                 assert initial_dist is not None
-                weight = 1 - lambda_fn(step)
                 ref_log_prob_fn: Callable[[chex.Array], chex.Array] = initial_dist.log_prob
             else:
                 raise ValueError(f"Reference process {reference_process} not supported.")
             flow_bias_fn: Callable[[chex.Array], chex.Array] = lambda x: get_flow_bias(
-                weight, ref_log_prob_fn(x), target_log_prob_fn(x)
+                beta_fn(step), ref_log_prob_fn(x), target_log_prob_fn(x)
             )
 
         def intermediate_log_prob_fn(x: chex.Array) -> chex.Array:

@@ -13,10 +13,6 @@ import wandb
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
 from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
-from algorithms.gfn_subtb.visualise import (
-    visualise_intermediate_distribution,
-    visualise_true_intermediate_distribution,
-)
 from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn_joint, loss_fn_subtb, rnd
 from algorithms.gfn_subtb_smc.gfn_subtb_smc_rnd import batch_simulate_fwd_subtrajectories
 from algorithms.gfn_tb.sampling_utils import get_sampling_func
@@ -150,32 +146,6 @@ def gfn_subtb_smc_nobuffer_trainer(cfg, target):
     )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
-    ### Plot the True intermediate distributions
-    if (
-        cfg.use_wandb
-        and getattr(target, "log_prob_t", None) is not None
-        and reference_process == "ou_dds"  # TODO: support other reference processes
-        and cfg.target.name in ["gaussian_mixture", "gaussian_mixture40"]  # TODO: support others
-    ):
-        true_vis_dict = visualise_true_intermediate_distribution(
-            target.visualise,
-            [i * (num_steps // n_chunks) for i in range(n_chunks + 1)],
-            num_steps,
-            reference_process,
-            noise_schedule,
-            lambda_fn,
-            alg_cfg.init_std,
-            target.log_prob,
-            target.log_prob_t,
-        )
-        wandb.log(
-            {
-                key.replace("figures/", "figures_true/"): value
-                for key, value in true_vis_dict.items()
-            },
-            step=0,
-        )
-
     tb_losses = jnp.zeros(batch_size)  # to avoid error in wandb logging
     ### Training phase
     for it in range(alg_cfg.iters):
@@ -223,25 +193,6 @@ def gfn_subtb_smc_nobuffer_trainer(cfg, target):
             logger["stats/nfe"].append((it + 1) * batch_size)  # FIXME
 
             logger.update(eval_fn(model_state, key))
-
-            # Visualize intermediate distributions (learned flows)
-            if cfg.use_wandb and cfg.target.name in ["gaussian_mixture", "gaussian_mixture40"]:
-                key, key_gen = jax.random.split(key_gen)
-                vis_dict = visualise_intermediate_distribution(
-                    target.visualise,
-                    [i * (num_steps // n_chunks) for i in range(n_chunks)],
-                    num_steps,
-                    None,  # trajectories,
-                    model_state,
-                    alg_cfg.partial_energy,
-                    batch_size,
-                    reference_process,
-                    noise_schedule,
-                    lambda_fn,
-                    initial_dist,
-                    target.log_prob,
-                )
-                logger.update(vis_dict)
 
             print_results(it, logger, cfg)
 

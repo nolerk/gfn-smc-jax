@@ -17,7 +17,7 @@ from algorithms.gfn_subtb.visualise import (
     visualise_intermediate_distribution,
     visualise_true_intermediate_distribution,
 )
-from algorithms.gfn_subtb.gfn_subtb_rnd import loss_fn_joint, loss_fn_subtb, rnd
+from algorithms.gfn_subtb.gfn_subtb_rnd import get_beta_fn, loss_fn_joint, loss_fn_subtb, rnd
 from algorithms.gfn_subtb_smc.gfn_subtb_smc_rnd import batch_simulate_fwd_subtrajectories
 from algorithms.gfn_tb.buffer import build_terminal_state_buffer
 from algorithms.gfn_tb.sampling_utils import get_sampling_func
@@ -292,7 +292,9 @@ def gfn_subtb_smc_trainer(cfg, target):
 
             # Visualize intermediate distributions (learned flows)
             if cfg.use_wandb and cfg.target.name in ["gaussian_mixture", "gaussian_mixture40"]:
-                key, key_gen = jax.random.split(key_gen)
+                beta_fn = get_beta_fn(
+                    model_state.params, alg_cfg.beta_schedule, num_steps, lambda_fn
+                )
                 vis_dict = visualise_intermediate_distribution(
                     target.visualise,
                     [i * (num_steps // n_chunks) for i in range(n_chunks)],
@@ -303,7 +305,7 @@ def gfn_subtb_smc_trainer(cfg, target):
                     batch_size,
                     reference_process,
                     noise_schedule,
-                    lambda_fn,
+                    beta_fn,
                     initial_dist,
                     target.log_prob,
                 )
