@@ -352,9 +352,11 @@ def loss_fn(
     if importance_weighting:
         smoothed_log_iws, _ = binary_search_smoothing(-log_ratio, target_ess)
         normalized_iws = jax.nn.softmax(smoothed_log_iws, axis=-1)
-        losses = losses * normalized_iws
+        loss = jnp.sum(losses * normalized_iws)
+    else:
+        loss = jnp.mean(losses)
 
-    return jnp.sum(losses), (
+    return loss, (
         terminal_xs,
         jax.lax.stop_gradient(-running_costs),  # log_pbs - log_pfs
         -terminal_costs,  # log_rewards

@@ -45,7 +45,7 @@ noise_schedule:
 smc:
   use: True
   resample_threshold: 0.20
-  target_ess: 0.1
+  target_ess: 0.05
   sampling_method: systematic
   bwd_to_fwd_ratio: 2  # number of bwd steps per fwd step
 

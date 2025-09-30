@@ -322,7 +322,7 @@ def batch_simulate_fwd_subtrajectories(
                 ),
                 # normalized_ess < resample_threshold,
                 lambda args: resampling(args[0], args[1], args[2], sampling_func, target_ess),
-                lambda args: (args[1], args[2], jnp.array(0.0)),
+                lambda args: (args[1], jax.nn.log_softmax(args[2], axis=0), logsumexp(args[2])),
                 (key, next_states, next_log_iws),
             )
 
