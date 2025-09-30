@@ -79,8 +79,8 @@ gbs:  # General Bridge Sampler
   init_std: 1.
   step_size: 5e-4
 
-######## HYPERPARAMETERS USED IN OUR PAPER ########
-# These can be different from the original settings
+############# HYPERPARAMETERS USED IN OUR PAPER #############
+# These can be slightly different from the original settings
 
 pis: # Path Integral Sampler
   max_diffusion: 1.

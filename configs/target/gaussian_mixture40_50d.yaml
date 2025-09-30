@@ -61,23 +61,8 @@ cmcd:  # Controlled Monte Carlo Diffusions
   init_std: 40.
   step_size: 5e-4
 
-scld:
-  max_diffusion: 20.
-  init_std: 40.
-  step_size: 1e-3
-  annealing_step_size: 1e-3
-  n_sub_traj: 4
-
-pis: # Path Integral Sampler
-  max_diffusion: 40.
-  step_size: 5e-4
-
 dis: # Time-reversed Diffusion Sampler
   max_diffusion: 10.
-  init_std: 40.
-  step_size: 5e-4
-
-dds: # Denoising Diffusion Sampler
   init_std: 40.
   step_size: 5e-4
 
@@ -85,6 +70,36 @@ gbs:  # General Bridge Sampler
   max_diffusion: 10.
   init_std: 40.
   step_size: 5e-4
+
+############# HYPERPARAMETERS USED IN OUR PAPER #############
+# These can be slightly different from the original settings
+
+dds: # Denoising Diffusion Sampler
+  init_std: 40.
+  step_size: 1e-4
+
+pis: # Path Integral Sampler
+  max_diffusion: 40.
+  step_size: 1e-3
+
+scld_cmcd_kl:
+  init_std: 40.
+  max_diffusion: 10.0
+  step_size: 1e-4
+  annealing_step_size: 1e-2
+
+scld_cmcd_lv:
+  init_std: 40.
+  max_diffusion: 20.0
+  step_size: 1e-4
+  annealing_step_size: 1e-2
+
+scld:
+  init_std: 40.
+  max_diffusion: 20.0
+  step_size: 1e-3
+  annealing_step_size: 1e-3
+  n_sub_traj: 4
 
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds

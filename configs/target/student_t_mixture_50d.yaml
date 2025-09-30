@@ -34,7 +34,7 @@ smc: # Sequential Monte Carlo Sampler
   init_std: 15.
 
 smc_advanced:
-  init_std: 1.
+  init_std: 15.
   target_ess: 0.99
   hmc_step_size: [0.1, 0.2]
 
@@ -61,24 +61,39 @@ cmcd:  # Controlled Monte Carlo Diffusions
   init_std: 15.
   step_size: 5e-4
 
-scld:
-  max_diffusion: 1.
-  init_std: 15.
-  step_size: 1e-3
-  annealing_step_size: 1e-3
-  n_sub_traj: 128
-
-pis: # Path Integral Sampler
-  max_diffusion: 15.
-  step_size: 5e-4
-
 dis: # Time-reversed Diffusion Sampler
   init_std: 15.
   step_size: 5e-4
 
+############# HYPERPARAMETERS USED IN OUR PAPER #############
+# These can be slightly different from the original settings
+
 dds: # Denoising Diffusion Sampler
   init_std: 15.
-  step_size: 5e-4
+  step_size: 1e-4
+
+pis: # Path Integral Sampler
+  max_diffusion: 15.
+  step_size: 1e-3
+
+scld_cmcd_kl:
+  init_std: 15.
+  max_diffusion: 10.0
+  step_size: 1e-3
+  annealing_step_size: 1e-3
+
+scld_cmcd_lv:
+  init_std: 15.
+  max_diffusion: 1.0
+  step_size: 1e-3
+  annealing_step_size: 1e-3
+
+scld:
+  init_std: 15.
+  max_diffusion: 1.0
+  step_size: 1e-3
+  annealing_step_size: 1e-3
+  n_sub_traj: 128
 
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds

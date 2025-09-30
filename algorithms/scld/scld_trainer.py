@@ -749,16 +749,16 @@ def scld_trainer(cfg, target):
 
                 model_state = gradient_step(model_state, grads_all)
 
-                if cfg.use_wandb and j == alg_cfg.n_updates_per_sim - 1:
-                    wandb.log(
-                        {
-                            "loss_hist": per_sample_loss,
-                            "stats/n_inner_its": alg_cfg.n_updates_per_sim * i + j,
-                            "stats/n_sims": i,
-                            "loss": jnp.mean(per_sample_loss),
-                        },
-                        step=i,
-                    )
+            if cfg.use_wandb and j == alg_cfg.n_updates_per_sim - 1:
+                wandb.log(
+                    {
+                        "loss_hist": per_sample_loss,
+                        "stats/n_inner_its": alg_cfg.n_updates_per_sim * i + j,
+                        "stats/n_sims": i,
+                        "loss": jnp.mean(per_sample_loss),
+                    },
+                    step=i,
+                )
 
             if i % eval_freq == 0 or i + 1 == alg_cfg.iters:
                 key, key_gen = jax.random.split(key_gen)

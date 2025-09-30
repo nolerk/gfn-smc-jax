@@ -27,13 +27,13 @@ smc: # Sequential Monte Carlo Sampler
   init_std: 2.
 
 smc_advanced:
-  init_std: 0.1
+  init_std: 2.0
   target_ess: 0.50
   hmc_step_size: [0.01, 0.05]
 
 flow_transport: # Flow Transport Methods (AFT/CRAFT)
-  init_std: 0.1
-  step_size:
+  init_std: 2.0
+  step_size: 1e-3
 
 fab: # Flow Annealed Importance Sampling Bootstrap
   init_std: 2.
@@ -44,25 +44,10 @@ cmcd: # CMCD
   max_diffusion: 0.03
   step_size: 1e-3
 
-scld:
-  init_std: 2. #0.1
-  max_diffusion: 0.03
-  step_size: 1e-3
-  annealing_step_size: 1e-3
-  n_sub_traj: 4
-
-dds: # Denoising Diffusion Sampler
-  init_std: 2
-  step_size: 1e-3
-
 dis: # DIS
   init_std: 2.
   step_size: 1e-3
   max_diffusion: 0.3
-
-pis: # Path Integral Sampler
-  step_size: 1e-5
-  max_diffusion: 2.
 
 ud_langevin:  # Underdamped Langevin Methods (UHA/LDVI)
   init_std:
@@ -71,6 +56,36 @@ ud_langevin:  # Underdamped Langevin Methods (UHA/LDVI)
 od_langevin:  # Overdamped Langevin Methods (ULA/MCD/CMCD)
   init_std:
   step_size:
+
+############# HYPERPARAMETERS USED IN OUR PAPER #############
+# These can be slightly different from the original settings
+
+dds: # Denoising Diffusion Sampler
+  init_std: 2
+  step_size: 1e-3
+
+pis: # Path Integral Sampler
+  max_diffusion: 2.
+  step_size: 1e-5
+
+scld_cmcd_kl:
+  init_std: 2.
+  max_diffusion: 0.03
+  step_size: 1e-3
+  annealing_step_size: 1e-3
+
+scld_cmcd_lv:
+  init_std: 2.
+  max_diffusion: 0.03
+  step_size: 1e-3
+  annealing_step_size: 1e-2
+
+scld:
+  init_std: 2.
+  max_diffusion: 0.03
+  step_size: 1e-3
+  annealing_step_size: 1e-3
+  n_sub_traj: 4
 
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
