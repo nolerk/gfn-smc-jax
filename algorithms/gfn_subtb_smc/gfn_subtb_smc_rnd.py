@@ -195,11 +195,10 @@ def resampling(
         key, jax.nn.softmax(tempered_log_iws, axis=0), log_iws.shape[0], replacement=True
     )
     resampled_states = states[indices]
-    logZ_ratio = logsumexp(log_iws)  # log(\hat{Z_t / Z_{t_prev}})
     resampled_log_iws = log_iws[indices] * (1 - 1 / temp)
     resampled_log_iws = jax.nn.log_softmax(resampled_log_iws, axis=0)
 
-    return resampled_states, resampled_log_iws, logZ_ratio
+    return resampled_states, resampled_log_iws
 
 
 ### simulate ###
@@ -314,15 +313,16 @@ def batch_simulate_fwd_subtrajectories(
         key, key_gen = jax.random.split(key_gen)
         logZ_ratio = jnp.array(0.0)
         if use_resampling:
+            logZ_ratio = logsumexp(next_log_iws)  # log(\hat{Z_t / Z_{t_prev}})
             normalized_ess = ess(log_iws=next_log_iws) / batch_size
-            next_states, next_log_iws, logZ_ratio = jax.lax.cond(
+            next_states, next_log_iws = jax.lax.cond(
                 jnp.logical_and(
                     normalized_ess < resample_threshold,
                     start_step + subtraj_length != num_steps,  # don't resample at the last step
                 ),
                 # normalized_ess < resample_threshold,
                 lambda args: resampling(args[0], args[1], args[2], sampling_func, target_ess),
-                lambda args: (args[1], jax.nn.log_softmax(args[2], axis=0), logsumexp(args[2])),
+                lambda args: (args[1], jax.nn.log_softmax(args[2], axis=0)),
                 (key, next_states, next_log_iws),
             )
 
