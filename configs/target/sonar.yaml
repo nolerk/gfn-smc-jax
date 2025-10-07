@@ -52,13 +52,6 @@ cmcd:  # Controlled Monte Carlo Diffusions
   init_std: .1
   step_size: 1e-3
 
-scld:
-  init_std: 1.
-  max_diffusion: 1.
-  step_size: 1e-3
-  annealing_step_size: 1e-2
-  n_sub_traj: 128
-
 pis: # Path Integral Sampler
   max_diffusion: 1.
   step_size: 1e-3
@@ -80,5 +73,30 @@ gbs:  # General Bridge Sampler
   init_std: .1
   step_size: 1e-3
 
+gfn_tb: # Trajectory Balance
+  reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
+  init_std: 1.  # for ou or ou_dss
+  max_diffusion: 1.  # for pinned_brownian or ou
+  step_size: 1e-3
+  logZ_step_size: 1e-1
+  init_logZ: 0.
+
+gfn_subtb: # Sub-Trajectory Balance
+  reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
+  init_std: 1.  # for ou or ou_dds
+  max_diffusion: 1.  # for pinned_brownian or ou
+  n_chunks: 32
+  step_size: 1e-3
+  logflow_step_size: 1e-3
+  beta_step_size: 1e-1
+  logZ_step_size: 1e-1  # for ou or ou_dds
+  init_logZ: 0.  # for ou or ou_dds
+  mcmc_step_size: 0.2
+
 all: # Parameters that are shared between all algorithms
   batch_size: 2000
+  iters: 40000
+  milestones: [20000, 30000]
+  num_steps: 128
+  use_lp: True
+  num_hid: 64

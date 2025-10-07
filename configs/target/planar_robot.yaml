@@ -59,13 +59,6 @@ cmcd:  # Controlled Monte Carlo Diffusions
   init_std: 1.
   step_size: 5e-4
 
-scld:
-  init_std: 2.
-  max_diffusion: 0.03
-  step_size: 1e-3
-  annealing_step_size: 1e-2
-  n_sub_traj: 4
-
 pis: # Path Integral Sampler
   max_diffusion: 1.
   step_size: 5e-4

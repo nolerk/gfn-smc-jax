@@ -36,7 +36,7 @@ smc: # Sequential Monte Carlo Sampler
   init_std: 1.
 
 smc_advanced:
-  init_std: 10.0
+  init_std: 1.
   target_ess: 0.99
   hmc_step_size: [0.2, 0.1]
 
@@ -63,22 +63,7 @@ cmcd:  # Controlled Monte Carlo Diffusions
   init_std: 1.
   step_size: 5e-4
 
-scld:
-  max_diffusion: 10. # sqrt(0.01 / (1 / 16))
-  init_std: 1.
-  step_size: 1e-4
-  annealing_step_size: 1e-2
-  n_sub_traj: 4
-
-pis: # Path Integral Sampler
-  max_diffusion: 1.
-  step_size: 5e-4
-
 dis: # Time-reversed Diffusion Sampler
-  init_std: 1.
-  step_size: 5e-4
-
-dds: # Denoising Diffusion Sampler
   init_std: 1.
   step_size: 5e-4
 
@@ -86,6 +71,17 @@ gbs:  # General Bridge Sampler
   max_diffusion: 1.
   init_std: 1.
   step_size: 5e-4
+
+############# HYPERPARAMETERS USED IN OUR PAPER #############
+# These can be slightly different from the original settings
+
+dds: # Denoising Diffusion Sampler
+  init_std: 1.
+  step_size: 1e-4
+
+pis: # Path Integral Sampler
+  max_diffusion: 1.
+  step_size: 1e-3
 
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
@@ -106,6 +102,7 @@ gfn_subtb: # Sub-Trajectory Balance
   logZ_step_size: 1e-1  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2
+  flow_num_hid: 256
 
 all: # Parameters that are shared between all algorithms
   batch_size: 2000

@@ -35,7 +35,7 @@ model:
   share_embeddings: False
   use_lp: ${target.all.use_lp}
   num_hid: ${target.all.num_hid}
-  flow_num_hid: 256
+  flow_num_hid: ${target.gfn_subtb.flow_num_hid}
   weight_init: 1e-8  # Initialization of the last layers' weights of the time-dependent network
   bias_init: 0.1  # Initialization of the last layers' bias of the time-dependent network
 

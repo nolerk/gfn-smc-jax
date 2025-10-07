@@ -82,25 +82,6 @@ pis: # Path Integral Sampler
   max_diffusion: 40.
   step_size: 1e-3
 
-scld_cmcd_kl:
-  init_std: 40.
-  max_diffusion: 10.0
-  step_size: 1e-4
-  annealing_step_size: 1e-2
-
-scld_cmcd_lv:
-  init_std: 40.
-  max_diffusion: 20.0
-  step_size: 1e-4
-  annealing_step_size: 1e-2
-
-scld:
-  init_std: 40.
-  max_diffusion: 20.0
-  step_size: 1e-3
-  annealing_step_size: 1e-3
-  n_sub_traj: 4
-
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
   init_std: 40.  # for ou or ou_dss
@@ -120,6 +101,7 @@ gfn_subtb: # Sub-Trajectory Balance
   logZ_step_size: 1e-1  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2
+  flow_num_hid: 256
 
 all: # Parameters that are shared between all algorithms
   batch_size: 2000

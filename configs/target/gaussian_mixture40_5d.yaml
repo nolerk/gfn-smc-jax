@@ -27,6 +27,9 @@ nfvi: # Normalizing Flow Variational Inference
   init_std: 20.
   step_size: 1e-3
 
+mh:
+  rwm_step_size: [0.2, 0.2]
+
 hmc:  # Hamilton Monte Carlo
   hmc_step_size: [0.2, 0.2]
 
@@ -60,13 +63,6 @@ cmcd:  # Controlled Monte Carlo Diffusions
   max_diffusion: 5.
   init_std: 20.
   step_size: 5e-4
-
-scld:
-  max_diffusion: 20.
-  init_std: 20.
-  step_size: 1e-3
-  annealing_step_size: 1e-3
-  n_sub_traj: 4
 
 dis: # Time-reversed Diffusion Sampler
   max_diffusion: 5.
@@ -108,6 +104,7 @@ gfn_subtb: # Sub-Trajectory Balance
   logZ_step_size: 1e-1  # for ou or ou_dds
   init_logZ: 0.  # for ou or ou_dds
   mcmc_step_size: 0.2
+  flow_num_hid: 64
 
 all: # Parameters that are shared between all algorithms
   batch_size: 2000

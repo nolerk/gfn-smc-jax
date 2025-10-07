@@ -13,7 +13,7 @@ target_ess: ${target.smc_advanced.target_ess}
 #  - common: mcmc
 mcmc:
   adaptive_tuning: True
-  mcmc_kernel: 'hmc'
+  mcmc_kernel: hmc
   hmc_step_times: [0., 0.5]
   hmc_step_sizes: ${target.smc_advanced.hmc_step_size}
   hmc_steps_per_iter: 1

@@ -59,16 +59,6 @@ def get_train_fn(alg_name):
 
         return cmcd_trainer
 
-    elif alg_name == "cmcd2":
-        from algorithms.cmcd2.cmcd2_trainer import cmcd2_trainer
-
-        return cmcd2_trainer
-
-    elif alg_name == "scld":
-        from algorithms.scld.scld_trainer import scld_trainer
-
-        return scld_trainer
-
     elif alg_name == "ldvi_depr":
         from algorithms.langevin_diffusion.ldvi_trainer import ldvi_trainer
 
@@ -118,6 +108,13 @@ def get_train_fn(alg_name):
         from algorithms.gfn_subtb_smc.gfn_subtb_smc_trainer import gfn_subtb_smc_trainer
 
         return gfn_subtb_smc_trainer
+
+    elif alg_name == "gfn_subtb_smc_hmc":
+        from algorithms.gfn_subtb_smc.gfn_subtb_smc_hmc_trainer import (
+            gfn_subtb_smc_hmc_trainer,
+        )
+
+        return gfn_subtb_smc_hmc_trainer
 
     elif alg_name == "gfn_subtb_smc_nobuffer":
         from algorithms.gfn_subtb_smc.gfn_subtb_smc_nobuffer_trainer import (
