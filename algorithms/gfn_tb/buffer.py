@@ -32,6 +32,7 @@ def get_priorities(
         case "uiw":
             if target_ess > 0.0:
                 log_iws, _ = binary_search_smoothing(log_iws, target_ess)
+            log_iws = jax.nn.log_softmax(log_iws, axis=0)
             return log_iws
         case "piw":
             return log_iws  # Will be smoothed in the `sample` function

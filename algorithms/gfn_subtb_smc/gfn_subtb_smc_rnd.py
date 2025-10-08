@@ -196,8 +196,6 @@ def resampling(
     )
     resampled_states = states[indices]
     resampled_log_iws = log_iws[indices] * (1 - 1 / temp)
-    resampled_log_iws = jax.nn.log_softmax(resampled_log_iws, axis=0)
-
     return resampled_states, resampled_log_iws
 
 
@@ -311,9 +309,8 @@ def batch_simulate_fwd_subtrajectories(
 
         ## Do resampling with the adaptive tempering
         key, key_gen = jax.random.split(key_gen)
-        logZ_ratio = jnp.array(0.0)
+        logZ_ratio = logsumexp(next_log_iws)  # log(\hat{Z_t / Z_{t_prev}})
         if use_resampling:
-            logZ_ratio = logsumexp(next_log_iws)  # log(\hat{Z_t / Z_{t_prev}})
             normalized_ess = ess(log_iws=next_log_iws) / batch_size
             next_states, next_log_iws = jax.lax.cond(
                 jnp.logical_and(
@@ -322,9 +319,10 @@ def batch_simulate_fwd_subtrajectories(
                 ),
                 # normalized_ess < resample_threshold,
                 lambda args: resampling(args[0], args[1], args[2], sampling_func, target_ess),
-                lambda args: (args[1], jax.nn.log_softmax(args[2], axis=0)),
+                lambda args: (args[1], args[2]),
                 (key, next_states, next_log_iws),
             )
+        next_log_iws = jax.nn.log_softmax(next_log_iws, axis=0)
 
         ## Do MCMC (Rejuvenation)
         key, key_gen = jax.random.split(key_gen)
@@ -385,10 +383,9 @@ def batch_simulate_fwd_subtrajectories(
     # end_state_log_fs have shape (#subtrajs, batch_size)
     # logZ_ratio have shape (#subtrajs,)
 
-    # These two are equivalent
-    # logZ_est = logZ_ratio.sum() + logsumexp(final_log_iws)
-    # final_log_iws = jax.nn.log_softmax(final_log_iws, axis=0) + logZ_est + jnp.log(batch_size)
-    final_log_iws = final_log_iws + logZ_ratio.sum() + jnp.log(batch_size)
+    # # These two (final_log_iws and final_log_iws2) are equivalent
+    logZ_est = logZ_ratio.sum()
+    final_log_iws = final_log_iws + logZ_est + jnp.log(batch_size)
 
     return (
         final_states,
