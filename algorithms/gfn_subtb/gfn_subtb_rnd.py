@@ -373,10 +373,10 @@ def rnd(
 
     trajectories = jnp.concatenate([trajectories, terminal_xs[:, None]], axis=1)
 
-    if initial_dist is not None:  # pinned_brownian
-        fwd_log_probs = fwd_log_probs.at[:, 0].set(
-            fwd_log_probs[:, 0] + initial_dist.log_prob(trajectories[:, 0])
-        )
+    if initial_dist is None:  # pinned_brownian
+        init_fwd_log_probs = jnp.zeros(batch_size)
+    else:
+        init_fwd_log_probs = initial_dist.log_prob(trajectories[:, 0])
 
     if log_rewards is None:
         log_rewards = target.log_prob(terminal_xs)
@@ -385,12 +385,13 @@ def rnd(
     log_pfs_over_pbs = fwd_log_probs - bwd_log_probs
     return (
         trajectories[:, -1],
-        log_pfs_over_pbs.sum(1),
+        log_pfs_over_pbs.sum(1) + init_fwd_log_probs,
         jnp.zeros_like(log_rewards),
         -log_rewards,
         trajectories,
         log_pfs_over_pbs,  # log_pfs - log_pbs
         log_fs,
+        init_fwd_log_probs,
     )
 
 
@@ -411,6 +412,7 @@ def loss_fn_tb(
         terminal_costs,
         trajectories,
         log_pfs_over_pbs,
+        _,
         _,
     ) = rnd_partial(key, model_state, params)
     log_rewards = jnp.where(
@@ -461,6 +463,7 @@ def loss_fn_subtb(
         trajectories,
         log_pfs_over_pbs,
         log_fs,
+        init_fwd_log_probs,
     ) = rnd_partial(key, model_state, params)
 
     bs, T = log_pfs_over_pbs.shape
@@ -477,7 +480,7 @@ def loss_fn_subtb(
         logZ = jax.lax.stop_gradient(logZ)
         log_pfs_over_pbs = jax.lax.stop_gradient(log_pfs_over_pbs)
 
-    log_fs = log_fs.at[:, 0].set(logZ)
+    log_fs = log_fs.at[:, 0].set(logZ + init_fwd_log_probs)
     log_fs = log_fs.at[:, -1].set(log_rewards * invtemp)
 
     # db_discrepancy = log_fs[:, :-1] + log_pfs_over_pbs - log_fs[:, 1:]
@@ -536,6 +539,7 @@ def loss_fn_joint(
         trajectories,
         log_pfs_over_pbs,
         log_fs,
+        init_fwd_log_probs,
     ) = rnd_partial(key, model_state, params)
 
     bs, T = log_pfs_over_pbs.shape
@@ -569,7 +573,7 @@ def loss_fn_joint(
         else:
             tb_losses = jnp.square(tb_losses)
 
-    log_fs = log_fs.at[:, 0].set(logZ)
+    log_fs = log_fs.at[:, 0].set(logZ + init_fwd_log_probs)
     log_fs = log_fs.at[:, -1].set(log_rewards * invtemp)
 
     log_pfs_over_pbs = jax.lax.stop_gradient(log_pfs_over_pbs)
@@ -602,6 +606,133 @@ def loss_fn_joint(
         subtb_losses = jnp.square(subtb_discrepancy)
 
     return jnp.mean(tb_losses + subtb_weight * subtb_losses.mean(-1)), (
+        trajectories,
+        -log_pfs_over_pbs,  # log(pb(s'->s)/pf(s->s'))
+        -terminal_costs,  # log_rewards
+        jax.lax.stop_gradient(tb_losses),
+        jax.lax.stop_gradient(subtb_losses),
+    )
+
+
+def loss_fn_subtb_lambda(
+    key: RandomKey,
+    model_state: TrainState,
+    params: ModelParams,
+    rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
+    lambda_coef_mat: Array,
+    invtemp: float = 1.0,
+    logr_clip: float = -1e5,
+    huber_delta: float | None = None,
+    flow_only: bool = False,  # if True, only optimize flow
+):
+    (
+        _,
+        _,
+        _,
+        terminal_costs,
+        trajectories,
+        log_pfs_over_pbs,
+        log_fs,
+        init_fwd_log_probs,
+    ) = rnd_partial(key, model_state, params)
+
+    log_rewards = jnp.where(
+        -terminal_costs > logr_clip,
+        -terminal_costs,
+        logr_clip - jnp.log(logr_clip + terminal_costs),
+    )
+
+    logZ = params["params"]["logZ"]
+    log_fs = log_fs.at[:, 0].set(logZ + init_fwd_log_probs)
+    log_fs = log_fs.at[:, -1].set(log_rewards * invtemp)
+
+    diff_logp = log_pfs_over_pbs  # (bs, T)
+    diff_logp_padded = jnp.concatenate(
+        (jnp.zeros((diff_logp.shape[0], 1)), diff_logp.cumsum(axis=-1)),
+        axis=1,
+    )  # (bs, T+1)
+    A1 = diff_logp_padded[:, None, :] - diff_logp_padded[:, :, None]  # (bs, T+1, T+1)
+    A2 = log_fs[:, :, None] - log_fs[:, None, :] + A1  # (bs, T+1, T+1)
+    A2 = jnp.triu(A2, k=1) ** 2
+    subtb_losses = (A2 * lambda_coef_mat[None, :, :]).sum((1, 2))
+
+    return jnp.mean(subtb_losses), (
+        trajectories,
+        jax.lax.stop_gradient(-log_pfs_over_pbs),  # log(pb(s'->s)/pf(s->s'))
+        -terminal_costs,  # log_rewards
+        jnp.zeros_like(subtb_losses),
+        jax.lax.stop_gradient(subtb_losses),
+    )
+
+
+def loss_fn_joint_lambda(
+    key: RandomKey,
+    model_state: TrainState,
+    params: ModelParams,
+    rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, ...]],
+    lambda_coef_mat: Array,
+    loss_type: Literal["subtb", "tb_subtb", "lv_subtb"] = "subtb",
+    subtb_weight: float = 1.0,
+    invtemp: float = 1.0,
+    logr_clip: float = -1e5,
+    huber_delta: float | None = None,
+):
+    (
+        _,
+        running_costs,
+        _,
+        terminal_costs,
+        trajectories,
+        log_pfs_over_pbs,
+        log_fs,
+        init_fwd_log_probs,
+    ) = rnd_partial(key, model_state, params)
+
+    bs, T = log_pfs_over_pbs.shape
+
+    log_rewards = jnp.where(
+        -terminal_costs > logr_clip,
+        -terminal_costs,
+        logr_clip - jnp.log(logr_clip + terminal_costs),
+    )
+    logZ = params["params"]["logZ"]
+
+    tb_losses = jnp.zeros_like(log_rewards)
+    if loss_type != "subtb":
+        log_ratio = (
+            running_costs - log_rewards * invtemp
+        )  # running_costs already contains initial pfs
+        if loss_type == "tb_subtb":
+            tb_losses = log_ratio + logZ
+            logZ = jax.lax.stop_gradient(logZ)
+        else:  # loss_type == "lv_subtb"
+            tb_losses = log_ratio - jnp.mean(log_ratio)
+
+        if huber_delta is not None:
+            tb_losses = jnp.where(
+                jnp.abs(tb_losses) <= huber_delta,
+                jnp.square(tb_losses),
+                huber_delta * jnp.abs(tb_losses) - 0.5 * huber_delta**2,
+            )
+        else:
+            tb_losses = jnp.square(tb_losses)
+
+    log_fs = log_fs.at[:, 0].set(logZ + init_fwd_log_probs)
+    log_fs = log_fs.at[:, -1].set(log_rewards * invtemp)
+
+    log_pfs_over_pbs = jax.lax.stop_gradient(log_pfs_over_pbs)
+
+    diff_logp = log_pfs_over_pbs  # (bs, T)
+    diff_logp_padded = jnp.concatenate(
+        (jnp.zeros((diff_logp.shape[0], 1)), diff_logp.cumsum(axis=-1)),
+        axis=1,
+    )  # (bs, T+1)
+    A1 = diff_logp_padded[:, None, :] - diff_logp_padded[:, :, None]  # (bs, T+1, T+1)
+    A2 = log_fs[:, :, None] - log_fs[:, None, :] + A1  # (bs, T+1, T+1)
+    A2 = jnp.triu(A2, k=1) ** 2
+    subtb_losses = (A2 * lambda_coef_mat[None, :, :]).sum((1, 2))
+
+    return jnp.mean(tb_losses + subtb_weight * subtb_losses), (
         trajectories,
         -log_pfs_over_pbs,  # log(pb(s'->s)/pf(s->s'))
         -terminal_costs,  # log_rewards

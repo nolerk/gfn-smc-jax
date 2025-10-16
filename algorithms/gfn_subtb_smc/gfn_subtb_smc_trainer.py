@@ -17,13 +17,30 @@ from algorithms.gfn_subtb.visualise import (
     visualise_intermediate_distribution,
     visualise_true_intermediate_distribution,
 )
-from algorithms.gfn_subtb.gfn_subtb_rnd import get_beta_fn, loss_fn_joint, loss_fn_subtb, rnd
+from algorithms.gfn_subtb.gfn_subtb_rnd import (
+    get_beta_fn,
+    loss_fn_joint,
+    loss_fn_subtb,
+    loss_fn_subtb_lambda,
+    loss_fn_joint_lambda,
+    rnd,
+)
 from algorithms.gfn_subtb_smc.gfn_subtb_smc_rnd import batch_simulate_fwd_subtrajectories
 from algorithms.gfn_tb.buffer import build_terminal_state_buffer
 from algorithms.gfn_tb.sampling_utils import get_sampling_func
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
 from utils.print_utils import print_results
+
+
+def get_subtb_lambda_coefs(lamda: float, num_steps: int):
+    range_vals = jnp.arange(num_steps + 1)
+    diff_matrix = range_vals - range_vals.reshape(-1, 1)
+    B = jnp.log(lamda) * diff_matrix
+    B = jnp.where(diff_matrix <= 0, -jnp.inf, B)
+    log_total_lambda = jax.nn.logsumexp(B.reshape(-1), axis=0)
+    coef = jnp.exp(B - log_total_lambda)
+    return coef
 
 
 def gfn_subtb_smc_trainer(cfg, target):
@@ -129,12 +146,22 @@ def gfn_subtb_smc_trainer(cfg, target):
 
     if loss_type == "subtb":
         loss_fn_base = partial(loss_fn_subtb, n_chunks=n_chunks)
+    elif loss_type == "subtb_lambda":
+        lambda_coef_mat = get_subtb_lambda_coefs(alg_cfg.lamda, num_steps)
+        loss_fn_base = partial(loss_fn_subtb_lambda, lambda_coef_mat=lambda_coef_mat)
     elif loss_type in ["tb_subtb", "lv_subtb"]:
         loss_fn_base = partial(
             loss_fn_joint,
             loss_type=loss_type,  # tb or lv
             n_chunks=n_chunks,
             subtb_weight=alg_cfg.subtb_weight,
+        )
+    elif loss_type == "tb_subtb_lambda":
+        lambda_coef_mat = get_subtb_lambda_coefs(alg_cfg.lamda, num_steps)
+        loss_fn_base = partial(
+            loss_fn_joint_lambda,
+            loss_type=loss_type,  # tb or lv
+            lambda_coef_mat=lambda_coef_mat,
         )
     else:
         raise ValueError(f"Loss type {loss_type} not supported.")
