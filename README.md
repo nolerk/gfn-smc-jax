@@ -69,11 +69,11 @@ Please refer to our paper for more details on the algorithms and targets.
 
 Full run scripts will be uploaded upon the acceptance of the paper.
 
-## References
+## Citation
 
-If you use parts of this repository in your work, please cite us using the following BibTeX citation:
+If you use parts of this repository in your work, please cite us using the following BibTeX entry:
 
-```
+```bibtex
 @article{choi2025reinforced,
   title={Reinforced sequential {M}onte {C}arlo for amortised sampling},
   author={Choi, Sanghyeok and Mittal, Sarthak and Elvira, V{\'\i}ctor and Park, Jinkyoo and Malkin, Nikolay},
