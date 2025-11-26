@@ -10,7 +10,11 @@ from jax.scipy.special import logsumexp
 from algorithms.common.types import Array, RandomKey, ModelParams
 from algorithms.gfn_tb.gfn_tb_rnd import sample_kernel, log_prob_kernel
 from algorithms.gfn_tb.sampling_utils import binary_search_smoothing, ess
-from algorithms.gfn_subtb.gfn_subtb_rnd import get_beta_fn, get_flow_bias
+from algorithms.gfn_subtb.gfn_subtb_rnd import (
+    get_beta_fn,
+    get_flow_bias,
+    ref_log_prob_pinned_brownian,
+)
 from algorithms.gfn_subtb_smc.mcmcs import mala
 from targets.base_target import Target
 
@@ -25,7 +29,7 @@ def get_log_f(
     step: Array,
     num_steps: int,
     partial_energy: bool,
-    init_log_prob_fn: Callable[[Array], Array],
+    ref_log_prob_fn: Callable[[Array], Array],
     target_log_prob_fn: Callable[[Array], Array],
     beta_fn: Callable[[int], float],
 ):
@@ -35,7 +39,7 @@ def get_log_f(
         )  # langevin doesn't affect the _log_f
         if partial_energy:
             log_f = log_f + get_flow_bias(
-                beta_fn(step), init_log_prob_fn(state), target_log_prob_fn(state)
+                beta_fn(step), ref_log_prob_fn(state), target_log_prob_fn(state)
             )
         return log_f
 
@@ -44,8 +48,106 @@ def get_log_f(
     )
 
 
-def per_sample_subtraj_rnd_pinned_brownian(*args, **kwargs):
-    raise NotImplementedError("Pinned Brownian reference process not implemented yet.")
+def per_sample_subtraj_rnd_pinned_brownian(
+    key: RandomKey,
+    model_state: TrainState,
+    params: ModelParams,
+    input_state: Array,
+    aux_tuple: tuple,
+    target: Target,
+    num_steps: int,
+    timestep_tup: tuple[int, int],  # (start_step, subtraj_length)
+    use_lp: bool,
+    partial_energy: bool,
+    beta_schedule: Literal["learnt", "linear", "cosine"],
+):
+    dim, noise_schedule = aux_tuple
+    assert beta_schedule != "cosine", "Cosine beta schedule not supported for pinned_brownian."
+    beta_fn = get_beta_fn(params, beta_schedule, num_steps)
+    dt = 1.0 / num_steps
+
+    def simulate_prior_to_target(state, per_step_input):
+        s, key_gen = state
+        step = per_step_input
+        sigma_t = noise_schedule(step)
+        _step = step.astype(jnp.float32)
+        t = _step / num_steps
+        t_next = (_step + 1) / num_steps
+
+        s = jax.lax.stop_gradient(s)
+
+        log_prob = jnp.array(0.0)
+        langevin = jnp.zeros(dim)
+        if use_lp:
+            log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
+        elif partial_energy:
+            log_prob = target.log_prob(s)
+
+        log_f_bias = jnp.array(0.0)
+        if partial_energy:
+            ref_log_prob = jax.lax.cond(
+                step == 0,
+                lambda _: 0.0,
+                lambda args: ref_log_prob_pinned_brownian(*args),
+                operand=(s, t, sigma_t),
+            )
+            log_f_bias = get_flow_bias(beta_fn(step), ref_log_prob, log_prob)
+
+        model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
+        log_f = log_f + log_f_bias
+
+        # Euler-Maruyama integration of the SDE
+        fwd_mean = s + model_output * dt
+        fwd_scale = sigma_t * jnp.sqrt(dt)
+        s_next, key_gen = sample_kernel(key_gen, fwd_mean, fwd_scale)
+        s_next = jax.lax.stop_gradient(s_next)
+        fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
+
+        # Compute backward SDE components
+        shrink = (t_next - dt) / t_next  # == t / t_next when uniform time steps
+        bwd_mean = shrink * s_next
+        bwd_scale = sigma_t * jnp.sqrt(shrink * dt)
+        bwd_log_prob = jax.lax.cond(
+            step == 0,
+            lambda _: jnp.array(0.0),
+            lambda args: log_prob_kernel(*args),
+            operand=(s, bwd_mean, bwd_scale),
+        )
+
+        # Return next state and per-step output
+        next_state = (s_next, key_gen)
+        per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
+        return next_state, per_step_output
+
+    start_step, subtraj_length = timestep_tup
+    end_step = start_step + subtraj_length
+
+    start_state = input_state
+    aux = (start_state, key)
+    aux, per_step_output = jax.lax.scan(
+        simulate_prior_to_target, aux, start_step + jnp.arange(subtraj_length)
+    )
+    end_state, _ = aux
+    subtrajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
+
+    def end_state_ref_log_prob(s):
+        sigma_end = noise_schedule(end_step)
+        _end_step = end_step.astype(jnp.float32)
+        t_end = _end_step / num_steps
+        return ref_log_prob_pinned_brownian(s, t_end, sigma_end)
+
+    end_state_log_f = get_log_f(
+        state=end_state,
+        model_state=model_state,
+        params=params,
+        step=end_step,
+        num_steps=num_steps,
+        partial_energy=partial_energy,
+        ref_log_prob_fn=end_state_ref_log_prob,
+        target_log_prob_fn=target.log_prob,
+        beta_fn=beta_fn,
+    )
+    return end_state, subtrajectory, fwd_log_prob, bwd_log_prob, log_f, end_state_log_f
 
 
 def per_sample_subtraj_rnd_ou(*args, **kwargs):
@@ -64,7 +166,6 @@ def per_sample_subtraj_rnd_ou_dds(
     use_lp: bool,
     partial_energy: bool,
     beta_schedule: Literal["learnt", "linear", "cosine"],
-    prior_to_target: bool = True,
 ):
     init_std, init_log_prob_fn, alpha_fn, lambda_fn = aux_tuple
     beta_fn = get_beta_fn(params, beta_schedule, num_steps, lambda_fn)
@@ -110,63 +211,15 @@ def per_sample_subtraj_rnd_ou_dds(
         per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
         return next_state, per_step_output
 
-    def simulate_target_to_prior(state, per_step_input):
-        s_next, key_gen = state
-        step = per_step_input
-        t = step / num_steps
-
-        s_next = jax.lax.stop_gradient(s_next)
-
-        # Compute backward SDE components
-        sqrt_at_next = jnp.clip(jnp.sqrt(alpha_fn(step)), 0, 1)
-        sqrt_1_minus_at_next = jnp.sqrt(1 - sqrt_at_next**2)
-        bwd_mean = sqrt_1_minus_at_next * s_next
-        bwd_scale = sqrt_at_next * init_std
-        s, key_gen = sample_kernel(key_gen, bwd_mean, bwd_scale)
-        s = jax.lax.stop_gradient(s)
-        bwd_log_prob = log_prob_kernel(s, bwd_mean, bwd_scale)
-
-        # Compute forward SDE components
-        log_prob = jnp.array(0.0)
-        langevin = jnp.zeros(s.shape[0])
-        if use_lp:
-            log_prob, langevin = jax.lax.stop_gradient(jax.value_and_grad(target.log_prob)(s))
-        elif partial_energy:
-            log_prob = target.log_prob(s)
-
-        log_f_bias = jnp.array(0.0)
-        if partial_energy:
-            log_f_bias = get_flow_bias(beta_fn(step), init_log_prob_fn(s), log_prob)
-
-        model_output, log_f = model_state.apply_fn(params, s, t * jnp.ones(1), langevin)
-        log_f = log_f + log_f_bias
-
-        fwd_mean = sqrt_1_minus_at_next * s + sqrt_at_next**2 * model_output
-        fwd_scale = sqrt_at_next * init_std
-        fwd_log_prob = log_prob_kernel(s_next, fwd_mean, fwd_scale)
-
-        # Return next state and per-step output
-        next_state = (s, key_gen)
-        per_step_output = (s, fwd_log_prob, bwd_log_prob, log_f)
-        return next_state, per_step_output
-
     start_step, subtraj_length = timestep_tup
     end_step = start_step + subtraj_length
-    if prior_to_target:
-        start_state = input_state
-        aux = (start_state, key)
-        aux, per_step_output = jax.lax.scan(
-            simulate_prior_to_target, aux, start_step + jnp.arange(subtraj_length)
-        )
-        end_state, _ = aux
-    else:
-        end_state = input_state
-        aux = (end_state, key)
-        aux, per_step_output = jax.lax.scan(
-            simulate_target_to_prior, aux, (start_step + jnp.arange(subtraj_length))[::-1]
-        )
-        start_state, _ = aux
 
+    start_state = input_state
+    aux = (start_state, key)
+    aux, per_step_output = jax.lax.scan(
+        simulate_prior_to_target, aux, start_step + jnp.arange(subtraj_length)
+    )
+    end_state, _ = aux
     subtrajectory, fwd_log_prob, bwd_log_prob, log_f = per_step_output
 
     end_state_log_f = get_log_f(
@@ -176,7 +229,7 @@ def per_sample_subtraj_rnd_ou_dds(
         step=end_step,
         num_steps=num_steps,
         partial_energy=partial_energy,
-        init_log_prob_fn=init_log_prob_fn,
+        ref_log_prob_fn=init_log_prob_fn,
         target_log_prob_fn=target.log_prob,
         beta_fn=beta_fn,
     )
@@ -281,7 +334,7 @@ def batch_simulate_fwd_subtrajectories(
             end_state_log_fs,
         ) = jax.vmap(
             per_sample_fn,
-            in_axes=(0, None, None, 0, None, None, None, None, None, None, None, None),
+            in_axes=(0, None, None, 0, None, None, None, None, None, None, None),
         )(
             keys,
             model_state,
@@ -294,7 +347,6 @@ def batch_simulate_fwd_subtrajectories(
             use_lp,
             partial_energy,
             beta_schedule,
-            True,  # prior_to_target
         )
 
         start_state_log_fs = jax.lax.cond(
@@ -386,6 +438,7 @@ def batch_simulate_fwd_subtrajectories(
     # # These two (final_log_iws and final_log_iws2) are equivalent
     logZ_est = logZ_ratio.sum()
     final_log_iws = final_log_iws + logZ_est + jnp.log(batch_size)
+    # jax.debug.print("logZ_est w/ SMC: {logZ_est}", logZ_est=logZ_est)
 
     return (
         final_states,

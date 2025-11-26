@@ -240,7 +240,6 @@ def per_sample_rnd_ou_dds(
         aux, per_step_output = jax.lax.scan(
             simulate_target_to_prior, aux, jnp.arange(num_steps)[::-1]
         )
-        init_x, _ = aux
 
     trajectory, fwd_log_prob, bwd_log_prob = per_step_output
     return terminal_x, trajectory, fwd_log_prob, bwd_log_prob

@@ -143,6 +143,10 @@ def gfn_tb_trainer(cfg, target):
                     buffer_state, xs, (log_pbs_over_pfs + log_rewards), log_rewards, losses
                 )
 
+            # from jax.scipy.special import logsumexp
+            # logZ_est = logsumexp(log_pbs_over_pfs + log_rewards) - jnp.log(batch_size)
+            # jax.debug.print("logZ_est: {logZ_est}", logZ_est=logZ_est)
+
         # Off-policy training with buffer samples
         else:
             # Sample terminal states from buffer

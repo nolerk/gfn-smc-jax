@@ -30,7 +30,7 @@ lr_schedule:
 
 defaults:
   - model: pisgrad_net
-  - noise_schedule: const
+  - noise_schedule: const  # const for pinned_brownian; this is not used for ou_dds 
 
 model:
   learn_flow: True

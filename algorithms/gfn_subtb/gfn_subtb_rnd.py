@@ -33,6 +33,10 @@ def get_flow_bias(weight, ref_log_prob, log_prob):
 
 def ref_log_prob_pinned_brownian(s, t, sigma_t):
     ref_log_var = jnp.log((sigma_t**2) * jnp.array(t))
+    # CAUTION: Note that this variance is only correct when the noise schedule is constant.
+    # so, if you want to use a non-constant noise schedule, you need to modify this.
+    # e.g., by keeping track of the cumulative variance through the time steps.
+
     log_p_ref = -0.5 * (
         jnp.log(2 * jnp.pi) + ref_log_var + jnp.exp(-ref_log_var) * jnp.square(s)
     ).sum(-1)
