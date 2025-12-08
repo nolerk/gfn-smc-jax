@@ -36,7 +36,6 @@ def gfn_subtb_trainer(cfg, target):
     reference_process = alg_cfg.reference_process
     noise_schedule = alg_cfg.noise_schedule
     loss_type = alg_cfg.loss_type
-    alternate = loss_type in ["tb_subtb_alt", "lv_subtb_alt"]
 
     target_xs = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
@@ -91,21 +90,18 @@ def gfn_subtb_trainer(cfg, target):
         initial_dist=initial_dist,
     )
 
-    if alternate:
-        # Map alternate modes to the correct base TB/LV loss for the TB step
-        loss_fn_base = partial(loss_fn_tb, loss_type=loss_type[:2])  # tb or lv
-    else:  # loss_type in ["subtb", "tb_subtb", "lv_subtb"]
-        if loss_type == "subtb":
-            loss_fn_base = partial(loss_fn_subtb, n_chunks=n_chunks)
-        elif loss_type in ["tb_subtb", "lv_subtb"]:
-            loss_fn_base = partial(
-                loss_fn_joint,
-                loss_type=loss_type,  # tb or lv
-                n_chunks=n_chunks,
-                subtb_weight=alg_cfg.subtb_weight,
-            )
-        else:
-            raise ValueError(f"Loss type {loss_type} not supported.")
+    if loss_type == "subtb":
+        loss_fn_base = partial(loss_fn_subtb, n_chunks=n_chunks, logr_clip=alg_cfg.logr_clip)
+    elif loss_type in ["tb_subtb", "lv_subtb"]:
+        loss_fn_base = partial(
+            loss_fn_joint,
+            loss_type=loss_type,  # tb or lv
+            n_chunks=n_chunks,
+            subtb_weight=alg_cfg.subtb_weight,
+            logr_clip=alg_cfg.logr_clip,
+        )
+    else:
+        raise ValueError(f"Loss type {loss_type} not supported.")
 
     # Define the function to be JIT-ed for FWD pass
     @jax.jit
@@ -128,27 +124,6 @@ def gfn_subtb_trainer(cfg, target):
         return loss_fn_base(key, model_state, params, rnd_partial=rnd_p, invtemp=invtemp)
 
     flow_loss_bwd_grad_fn = lambda *args, **kwargs: None
-    if alternate:
-
-        @jax.jit
-        @partial(jax.grad, argnums=2, has_aux=True)
-        def flow_loss_bwd_grad_fn(key, model_state, params, terminal_xs, log_rewards, invtemp=1.0):
-            rnd_p = partial(
-                rnd_partial_base,
-                batch_size=batch_size,
-                prior_to_target=False,
-                terminal_xs=terminal_xs,
-                log_rewards=log_rewards,
-            )
-            return loss_fn_subtb(
-                key,
-                model_state,
-                params,
-                rnd_partial=rnd_p,
-                n_chunks=n_chunks,
-                invtemp=invtemp,
-                flow_only=True,
-            )
 
     ### Prepare eval function
     eval_fn, logger = get_eval_fn(
@@ -262,28 +237,6 @@ def gfn_subtb_trainer(cfg, target):
             if "logZ" in model_state.params["params"]:
                 log_dict["logZ_learned"] = model_state.params["params"]["logZ"]
             wandb.log(log_dict, step=it)
-
-        if alternate and it > 0 and it % alg_cfg.learn_flow_every == 0:
-            print(f"Learning flow at iteration {it}")
-
-            for _ in range(alg_cfg.learn_flow_iters):
-                key, key_gen = jax.random.split(key_gen)
-                samples, log_rewards, indices = buffer.sample(buffer_state, key, batch_size)
-
-                key, key_gen = jax.random.split(key_gen)
-                grads, (
-                    trajectories,
-                    log_pbs_over_pfs,
-                    log_rewards,
-                    _,
-                    subtb_losses,
-                ) = flow_loss_bwd_grad_fn(
-                    key, model_state, model_state.params, samples, log_rewards, invtemp=invtemp
-                )
-                model_state = model_state.apply_gradients_flow(grads=grads)
-
-            if cfg.use_wandb:
-                wandb.log({f"alt_subtb_loss": jnp.mean(subtb_losses.mean(-1))}, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)

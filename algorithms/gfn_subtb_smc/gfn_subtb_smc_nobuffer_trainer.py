@@ -108,13 +108,14 @@ def gfn_subtb_smc_nobuffer_trainer(cfg, target):
     )
 
     if loss_type == "subtb":
-        loss_fn_base = partial(loss_fn_subtb, n_chunks=n_chunks)
+        loss_fn_base = partial(loss_fn_subtb, n_chunks=n_chunks, logr_clip=alg_cfg.logr_clip)
     elif loss_type in ["tb_subtb", "lv_subtb"]:
         loss_fn_base = partial(
             loss_fn_joint,
             loss_type=loss_type,  # tb or lv
             n_chunks=n_chunks,
             subtb_weight=alg_cfg.subtb_weight,
+            logr_clip=alg_cfg.logr_clip,
         )
     else:
         raise ValueError(f"Loss type {loss_type} not supported.")
@@ -146,6 +147,12 @@ def gfn_subtb_smc_nobuffer_trainer(cfg, target):
     )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
 
+    # ### Initialise logZ with approximation from a forward SMC pass
+    # key, key_gen = jax.random.split(key_gen)
+    # _, _, _, _, _, _, _, logZ_est = simulate_fwd_subtraj_jit(key, model_state, model_state.params)
+    # model_state.params["params"]["logZ"] = jnp.atleast_1d(logZ_est)
+    # print(f"logZ_init: {logZ_est:.4f}")
+
     tb_losses = jnp.zeros(batch_size)  # to avoid error in wandb logging
     ### Training phase
     for it in range(alg_cfg.iters):
@@ -166,7 +173,7 @@ def gfn_subtb_smc_nobuffer_trainer(cfg, target):
         else:
             # Sample terminal states using smc
             key, key_gen = jax.random.split(key_gen)
-            samples, final_log_iws, _, _, _, _, end_state_log_fs = simulate_fwd_subtraj_jit(
+            samples, _, _, _, _, _, end_state_log_fs, _ = simulate_fwd_subtraj_jit(
                 key, model_state, model_state.params
             )
             log_rewards = end_state_log_fs[-1, :]

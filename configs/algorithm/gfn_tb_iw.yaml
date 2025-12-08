@@ -15,6 +15,7 @@ noise_scale: 6.  # for ou_dds
 init_invtemp: 1.
 iw_train_freq: 1  # number of importance-weighted training steps per on-policy training step
 target_ess: 0.05  # target ESS for importance weighting
+logr_clip: -1e5
 
 # Learning rate scheduler
 lr_schedule:

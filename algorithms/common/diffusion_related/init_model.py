@@ -3,8 +3,6 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.traverse_util import path_aware_map
-from flax import struct
-from typing import Any
 
 from algorithms.common.models.pisgrad_net import PISGRADNet
 
@@ -78,7 +76,7 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             ),
             optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size)),
         )
-    elif "gfn" in alg_cfg.name:
+    else:  # "gfn" in alg_cfg.name
         optimizers_map = {
             "network_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size))
         }
@@ -92,11 +90,7 @@ def init_model(key, dim, alg_cfg) -> TrainState:
                     learning_rate=build_lr_schedule(alg_cfg.beta_step_size)
                 )
 
-        if (
-            ("gfn_tb" in alg_cfg.name and alg_cfg.loss_type == "tb")
-            or ("gfn_subtb" in alg_cfg.name and "tb_subtb" in alg_cfg.loss_type)
-            or (alg_cfg.reference_process in ["ou", "ou_dds"])
-        ):
+        if not ("gfn_tb" in alg_cfg.name and alg_cfg.loss_type == "lv"):  # for lv, logZ is not used
             params["params"]["logZ"] = jnp.array((alg_cfg.init_logZ,))
             optimizers_map["logZ_optim"] = optax.adam(
                 learning_rate=build_lr_schedule(alg_cfg.logZ_step_size)
@@ -104,86 +98,16 @@ def init_model(key, dim, alg_cfg) -> TrainState:
 
         param_labels = path_aware_map(pisgrad_net_label_map, params)
         partitioned_optimizer = optax.multi_transform(optimizers_map, param_labels)
-        if not ("gfn_subtb" in alg_cfg.name and "alt" in alg_cfg.loss_type):
-            optimizer = optax.chain(
-                optax.zero_nans(),
-                (
-                    optax.clip_by_global_norm(alg_cfg.grad_clip)
-                    if alg_cfg.grad_clip > 0
-                    else optax.identity()
-                ),
-                partitioned_optimizer,
-            )
-        else:  # gfn_subtb and alternate (loss_type in ["tb_subtb_alt", "lv_subtb_alt"])
-            # Construct boolean masks per-parameter for flow-only vs tb-only updates
-            flow_mask = jax.tree_util.tree_map(lambda lbl: lbl == "logflow_optim", param_labels)
-            policy_mask = jax.tree_util.tree_map(lambda lbl: lbl != "logflow_optim", param_labels)
 
-            # TB optimizer (policy + logZ only; freeze flow params entirely)
-            policy_tx = optax.chain(
-                optax.zero_nans(),
-                (
-                    optax.clip_by_global_norm(alg_cfg.grad_clip)
-                    if alg_cfg.grad_clip > 0
-                    else optax.identity()
-                ),
-                optax.masked(partitioned_optimizer, policy_mask),
-            )
-
-            # Flow-only optimizer: mask out non-flow params so their params and opt-state don't step
-            flow_tx = optax.chain(
-                optax.zero_nans(),
-                (
-                    optax.clip_by_global_norm(alg_cfg.grad_clip)
-                    if alg_cfg.grad_clip > 0
-                    else optax.identity()
-                ),
-                optax.masked(partitioned_optimizer, flow_mask),
-            )
-
-            # Return an extended TrainState carrying both tx's and states.
-            @struct.dataclass
-            class AlternateTrainState(TrainState):
-                flow_tx: Any = struct.field(pytree_node=False)
-                flow_opt_state: Any
-
-                def apply_gradients(self, *, grads, **kwargs):
-                    # Default to TB optimizer (keeps existing call sites working)
-                    updates, new_opt_state = self.tx.update(grads, self.opt_state, self.params)
-                    new_params = optax.apply_updates(self.params, updates)
-                    return self.replace(
-                        step=self.step + 1,
-                        params=new_params,
-                        opt_state=new_opt_state,
-                    )
-
-                def apply_gradients_flow(self, *, grads, **kwargs):
-                    updates, new_flow_opt_state = self.flow_tx.update(
-                        grads, self.flow_opt_state, self.params
-                    )
-                    new_params = optax.apply_updates(self.params, updates)
-                    return self.replace(
-                        step=self.step + 1,
-                        params=new_params,
-                        flow_opt_state=new_flow_opt_state,
-                    )
-
-            # Initialize both optimizer states
-            tb_opt_state = policy_tx.init(params)
-            flow_opt_state = flow_tx.init(params)
-
-            model_state = AlternateTrainState(
-                step=0,
-                apply_fn=model.apply,
-                params=params,
-                tx=policy_tx,
-                opt_state=tb_opt_state,
-                flow_tx=flow_tx,
-                flow_opt_state=flow_opt_state,
-            )
-            return model_state
-    else:
-        raise ValueError(f"Invalid algorithm name: {alg_cfg.name}")
+        optimizer = optax.chain(
+            optax.zero_nans(),
+            (
+                optax.clip_by_global_norm(alg_cfg.grad_clip)
+                if alg_cfg.grad_clip > 0
+                else optax.identity()
+            ),
+            partitioned_optimizer,
+        )
 
     model_state = TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
 

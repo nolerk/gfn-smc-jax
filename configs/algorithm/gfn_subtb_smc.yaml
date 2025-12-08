@@ -20,6 +20,7 @@ init_invtemp: 1.
 loss_type: tb_subtb  # subtb, tb_subtb, lv_subtb
 subtb_weight: 1.0  # used if loss_type is in [tb_subtb, lv_subtb]
 lamda: 1.0  # used if loss_type is in [subtb_lambda, tb_subtb_lambda]
+logr_clip: -1e5
 
 # Learning rate scheduler
 lr_schedule:

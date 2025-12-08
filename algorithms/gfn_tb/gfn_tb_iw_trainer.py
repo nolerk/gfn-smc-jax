@@ -59,7 +59,7 @@ def gfn_tb_iw_trainer(cfg, target):
         use_lp=alg_cfg.model.use_lp,
         initial_dist=initial_dist,
     )
-    loss_fn_base = partial(loss_fn, loss_type=loss_type)
+    loss_fn_base = partial(loss_fn, loss_type=loss_type, logr_clip=alg_cfg.logr_clip)
 
     # Define the function to be JIT-ed for FWD pass
     @partial(jax.jit)
@@ -90,6 +90,21 @@ def gfn_tb_iw_trainer(cfg, target):
         partial(rnd_partial_base, batch_size=cfg.eval_samples), target, target_xs, cfg
     )
     eval_freq = max(alg_cfg.iters // cfg.n_evals, 1)
+
+    # ### Initialise logZ with approximated logZ from a forward pass
+    # @partial(jax.jit)
+    # def loss_fwd_nograd_fn(key, model_state, params, invtemp=1.0):
+    #     rnd_p = partial(rnd_partial_base, batch_size=batch_size, prior_to_target=True)
+    #     return loss_fn_base(key, model_state, params, rnd_p, invtemp=invtemp)
+
+    # key, key_gen = jax.random.split(key_gen)
+    # _, (_, log_pbs_over_pfs, log_rewards, _) = loss_fwd_nograd_fn(
+    #     key, model_state, model_state.params
+    # )
+    # logZ_init += jax.nn.logsumexp(log_pbs_over_pfs + log_rewards) - jnp.log(batch_size)
+
+    # model_state.params["params"]["logZ"] = jnp.atleast_1d(logZ_init)
+    # print(f"logZ_init: {logZ_init:.4f}")
 
     ### Training phase
     for it in range(alg_cfg.iters):

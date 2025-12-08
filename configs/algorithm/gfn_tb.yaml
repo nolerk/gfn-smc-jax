@@ -13,6 +13,7 @@ init_std: ${target.gfn_tb.init_std}  # for ou
 max_diffusion: ${target.gfn_tb.max_diffusion}  # for pinned_brownian or ou
 noise_scale: 6.  # for ou_dds
 init_invtemp: 1.
+logr_clip: -1e5
 
 # Learning rate scheduler
 lr_schedule:

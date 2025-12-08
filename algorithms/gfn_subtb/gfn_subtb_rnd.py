@@ -57,6 +57,7 @@ def per_sample_rnd_pinned_brownian(
     prior_to_target=True,
 ):
     dim, noise_schedule = aux_tuple
+    assert beta_schedule != "cosine", "Cosine beta schedule not supported for pinned_brownian."
     beta_fn = get_beta_fn(params, beta_schedule, num_steps)
     dt = 1.0 / num_steps
 

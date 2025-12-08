@@ -267,7 +267,7 @@ class ManyWell2(Target):
 
     def visualise(self, samples: chex.Array = None, axes=None, show=False, prefix="") -> dict:
         """Visualise samples from the model."""
-        plotting_bounds = (-3, 3)
+        plotting_bounds = (-self._plot_bound, self._plot_bound)
         grid_width_n_points = 100
         fig, axs = plt.subplots(2, 2, figsize=(8, 8), sharex="row", sharey="row")
         samples = jnp.clip(samples, plotting_bounds[0], plotting_bounds[1])

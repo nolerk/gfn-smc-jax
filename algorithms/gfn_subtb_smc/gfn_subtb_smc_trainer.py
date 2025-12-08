@@ -145,16 +145,19 @@ def gfn_subtb_smc_trainer(cfg, target):
     )
 
     if loss_type == "subtb":
-        loss_fn_base = partial(loss_fn_subtb, n_chunks=n_chunks)
+        loss_fn_base = partial(loss_fn_subtb, n_chunks=n_chunks, logr_clip=alg_cfg.logr_clip)
     elif loss_type == "subtb_lambda":
         lambda_coef_mat = get_subtb_lambda_coefs(alg_cfg.lamda, num_steps)
-        loss_fn_base = partial(loss_fn_subtb_lambda, lambda_coef_mat=lambda_coef_mat)
+        loss_fn_base = partial(
+            loss_fn_subtb_lambda, lambda_coef_mat=lambda_coef_mat, logr_clip=alg_cfg.logr_clip
+        )
     elif loss_type in ["tb_subtb", "lv_subtb"]:
         loss_fn_base = partial(
             loss_fn_joint,
             loss_type=loss_type,  # tb or lv
             n_chunks=n_chunks,
             subtb_weight=alg_cfg.subtb_weight,
+            logr_clip=alg_cfg.logr_clip,
         )
     elif loss_type == "tb_subtb_lambda":
         lambda_coef_mat = get_subtb_lambda_coefs(alg_cfg.lamda, num_steps)
@@ -219,13 +222,13 @@ def gfn_subtb_smc_trainer(cfg, target):
             step=0,
         )
 
-    ### Prefill phase
+    ### Prefill phase; initialise logZ with SMC-estimation
     if use_buffer and buffer_cfg.prefill_steps > 0:
-        # Define the function to be JIT-ed for FWD pass
+        # logZ_estimates = []
         for _ in range(buffer_cfg.prefill_steps):
             key, key_gen = jax.random.split(key_gen)
-            final_states, final_log_iws, _, _, _, _, end_state_log_fs = simulate_subtraj_jit(
-                key, model_state, model_state.params
+            final_states, final_log_iws, _, _, _, _, end_state_log_fs, logZ_est = (
+                simulate_subtraj_jit(key, model_state, model_state.params)
             )
 
             buffer_state = buffer.add(
@@ -235,6 +238,16 @@ def gfn_subtb_smc_trainer(cfg, target):
                 end_state_log_fs[-1, :],
                 jnp.zeros_like(final_log_iws),  # loss-prioritized buffer should not be used here
             )
+    #         logZ_estimates.append(logZ_est)
+    #     logZ_init = jax.nn.logsumexp(jnp.stack(logZ_estimates)) - jnp.log(buffer_cfg.prefill_steps)
+    # else:
+    #     key, key_gen = jax.random.split(key_gen)
+    #     final_states, final_log_iws, _, _, _, _, end_state_log_fs, logZ_est = simulate_subtraj_jit(
+    #         key, model_state, model_state.params
+    #     )
+    #     logZ_init = logZ_est
+    # model_state.params["params"]["logZ"] = jnp.atleast_1d(logZ_init)
+    # print(f"logZ_init: {logZ_init:.4f}")
 
     tb_losses = jnp.zeros(batch_size)  # to avoid error in wandb logging
     ### Training phase
@@ -267,7 +280,7 @@ def gfn_subtb_smc_trainer(cfg, target):
             # Sample terminal states using smc and store in buffer
             if alg_cfg.smc.use:
                 key, key_gen = jax.random.split(key_gen)
-                samples, final_log_iws, _, _, _, _, end_state_log_fs = simulate_subtraj_jit(
+                samples, final_log_iws, _, _, _, _, end_state_log_fs, _ = simulate_subtraj_jit(
                     key, model_state, model_state.params
                 )
                 log_rewards = end_state_log_fs[-1, :]

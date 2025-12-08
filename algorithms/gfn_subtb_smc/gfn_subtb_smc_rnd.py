@@ -273,7 +273,7 @@ def batch_simulate_fwd_subtrajectories(
         bool,  # use
         float,  # resample_threshold
         Callable[[RandomKey, Array, int, bool], Array],  # sampling_func
-        float,  # target_ess
+        float,  # target_ess in [0, 1]
     ],
     mcmc_configs: tuple[
         bool,  # use
@@ -362,7 +362,7 @@ def batch_simulate_fwd_subtrajectories(
         ## Do resampling with the adaptive tempering
         key, key_gen = jax.random.split(key_gen)
         logZ_ratio = logsumexp(next_log_iws)  # log(\hat{Z_t / Z_{t_prev}})
-        if use_resampling:
+        if use_resampling and target_ess < 1.0:  # if target_ess is 1.0, no need to resample
             normalized_ess = ess(log_iws=next_log_iws) / batch_size
             next_states, next_log_iws = jax.lax.cond(
                 jnp.logical_and(
@@ -435,7 +435,6 @@ def batch_simulate_fwd_subtrajectories(
     # end_state_log_fs have shape (#subtrajs, batch_size)
     # logZ_ratio have shape (#subtrajs,)
 
-    # # These two (final_log_iws and final_log_iws2) are equivalent
     logZ_est = logZ_ratio.sum()
     final_log_iws = final_log_iws + logZ_est + jnp.log(batch_size)
     # jax.debug.print("logZ_est w/ SMC: {logZ_est}", logZ_est=logZ_est)
@@ -448,6 +447,7 @@ def batch_simulate_fwd_subtrajectories(
         bwd_log_probs,
         log_fs,
         end_state_log_fs,
+        logZ_est,
     )
 
 
