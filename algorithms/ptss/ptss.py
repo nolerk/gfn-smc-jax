@@ -86,6 +86,47 @@ def ptss_swap(
     return StateDict(x=x, key=key, swap_avg=swap_mask.mean())
 
 
+def select_region_base(
+        x: jnp.ndarray,
+        y: jnp.ndarray,
+        idx_mask: jnp.ndarray,
+        log_density: Callable,
+        window_size: float,
+        max_while_iter: int,
+        region_limits: tuple
+):    
+    lim_left, lim_right = region_limits
+    left = jnp.where(idx_mask, x - window_size / 2, x) 
+    right = jnp.where(idx_mask, x + window_size / 2, x)
+
+    def _expand_body(state):
+        val, sign = state.val, state.sign
+        val = jnp.where(state.mask, val + sign * window_size, val)
+
+        density_cond = (log_density(val) >= jnp.log(y))[..., None]
+        border_cond = jnp.where(sign == -1, val >= lim_left, val <= lim_right)
+        mask = density_cond & idx_mask & border_cond
+
+        return StateDict(val=val, mask=mask, sign=sign, iter=state.iter + 1)
+    
+    def _cond(state):
+        return jnp.any(state.mask) & (state.iter < max_while_iter)
+    
+    density_cond = (log_density(left) >= jnp.log(y))[..., None]
+    left_upd_mask = density_cond & idx_mask & (left >= lim_left)
+    left_state = StateDict(val=left, mask=left_upd_mask, sign=-1, iter=0)  
+    left = jax.lax.while_loop(_cond, _expand_body, left_state).val
+
+
+    density_cond = (log_density(right) >= jnp.log(y))[..., None]
+    right_upd_mask = density_cond & idx_mask & (right <= lim_right)
+    right_state = StateDict(val=right, mask=right_upd_mask, sign=1, iter=0)
+    right = jax.lax.while_loop(_cond, _expand_body, right_state).val
+
+    return left, right
+
+
+
 def sample_new_x(
         x: jnp.ndarray, 
         y: jnp.ndarray, 
@@ -93,36 +134,17 @@ def sample_new_x(
         window_size: float, 
         key: jax.random.PRNGKey, 
         max_while_iter: int = 1_000,
-        limits: tuple = (-5, 5)
+        limits: tuple = (-5, 5),
     ):
-    lim_left, lim_right = limits
-    left, right = x - window_size / 2, x + window_size / 2
+    _, batch, dim = x.shape
+    key, k1, k2 = jax.random.split(key, 3)
 
-    def _expand_body(state):
-        val, sign = state.val, state.sign
-        val = jnp.where(state.mask, val + sign * window_size, val)
-        
-        density_cond = (log_density(val) >= jnp.log(y))[..., None]
-        border_cond = jnp.where(sign == -1, val >= lim_left, val <= lim_right)
-        mask = density_cond & border_cond
-
-        return StateDict(val=val, mask=mask, sign=sign, iter=state.iter + 1)
+    dim_idx = jax.random.randint(k1, (batch,), 0, dim)
+    idx_mask = jax.nn.one_hot(dim_idx, num_classes=x.shape[2]).astype(bool)
     
-    def _cond(state):
-        return jnp.any(state.mask) & (state.iter < max_while_iter)
-    
-    left_upd_mask = (log_density(left) >= jnp.log(y))[..., None] & (left >= lim_left)
-    left_state = StateDict(val=left, mask=left_upd_mask, sign=-1, iter=0)  
-    left = jax.lax.while_loop(_cond, _expand_body, left_state).val
-
-    right_upd_mask = \
-        (log_density(right) >= jnp.log(y))[..., None] & (right <= lim_right)
-    right_state = StateDict(val=right, mask=right_upd_mask, sign=1, iter=0)
-    right = jax.lax.while_loop(_cond, _expand_body, right_state).val
-
-    key, subkey = jax.random.split(key)
-    x_new = jax.random.uniform(subkey, x.shape) * (right - left) + left
-    mask = (log_density(x_new) < jnp.log(y))[..., None]
+    left, right = select_region_base(
+        x, y, idx_mask, log_density, window_size, max_while_iter, limits
+    )
     
     def _sample_body(state):
         x, x_new, left, right, mask = \
@@ -132,8 +154,12 @@ def sample_new_x(
         left = jnp.where(mask & (x_new < x), x_new, left)
 
         key, subkey = jax.random.split(state.key)
-        x_new = jax.random.uniform(subkey, x.shape) * (right - left) + left
-        mask = (log_density(x_new) < jnp.log(y))[..., None]
+        x_new = jnp.where(
+            idx_mask,
+            jax.random.uniform(subkey, x.shape) * (right - left) + left,
+            x
+        )
+        mask = (log_density(x_new) < jnp.log(y))[..., None] & idx_mask
 
         new_state = StateDict(
             x=x, x_new=x_new, left=left, right=right, 
@@ -142,13 +168,23 @@ def sample_new_x(
         
         return new_state
 
+    def _cond(state):
+        return jnp.any(state.mask) & (state.iter < max_while_iter)
+
+    x_new = jnp.where(
+        idx_mask,
+        jax.random.uniform(k2, x.shape) * (right - left) + left,
+        x
+    )
+
+    coord_change_mask = (log_density(x_new) < jnp.log(y))[..., None] * idx_mask
     sample_state = StateDict(
         x=x, x_new=x_new, left=left, 
-        right=right, mask=mask, key=key, iter=0
+        right=right, mask=coord_change_mask, key=key, iter=0
     )
-    
+
     x_new = jax.lax.while_loop(_cond, _sample_body, sample_state).x_new
-    
+
     return x_new
 
 
