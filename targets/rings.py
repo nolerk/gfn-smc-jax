@@ -4,7 +4,6 @@ from typing import List
 import chex
 import jax
 import jax.numpy as jnp
-import wandb
 from matplotlib import pyplot as plt
 
 from targets.base_target import Target
@@ -55,7 +54,7 @@ class ConcentricRings(Target):
             plt.xticks([])
             plt.yticks([])
             # plt.savefig(os.path.join(project_path('./figures/'), f"rings2D.pdf"), bbox_inches='tight', pad_inches=0.1)
-            wb = {"figures/vis": [wandb.Image(fig)]}
+            wb = {"figures/vis": [fig]}
             if show:
                 plt.show()
 

@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
-import wandb
 
 LoggingData = Mapping[str, Any]
 
@@ -77,13 +76,68 @@ class ListLogger(Logger):
 
 
 class WandbLogger(Logger):
+    """Wandb logger that uses the unified logging interface."""
+    
     def __init__(self, **kwargs: Any):
+        import wandb
         self.run = wandb.init(**kwargs, reinit=True)
         self.iter: int = 0
 
-    def write(self, data: Dict[str, Any]) -> None:
+    def write(self, data: LoggingData) -> None:
         self.run.log(data, step=self.iter, commit=False)
         self.iter += 1
 
     def close(self) -> None:
         self.run.finish()
+
+
+class CometLogger(Logger):
+    """Comet.ml logger that uses the unified logging interface."""
+    
+    def __init__(self, **kwargs: Any):
+        import comet_ml
+        self.experiment = comet_ml.Experiment(**kwargs)
+        self.iter: int = 0
+
+    def write(self, data: LoggingData) -> None:
+        for key, value in data.items():
+            if value is not None:
+                self.experiment.log_metric(key, value, step=self.iter)
+        self.iter += 1
+
+    def close(self) -> None:
+        self.experiment.end()
+
+
+class UnifiedLogger(Logger):
+    """Logger that supports both wandb and comet_ml through the unified interface."""
+    
+    def __init__(self, use_wandb: bool = True, use_comet: bool = False, **kwargs: Any):
+        self.loggers = []
+        self.iter: int = 0
+        
+        if use_wandb:
+            import wandb
+            self.wandb_run = wandb.init(**kwargs.get('wandb_config', {}), reinit=True)
+            self.loggers.append('wandb')
+        
+        if use_comet:
+            import comet_ml
+            comet_config = kwargs.get('comet_config', {})
+            self.comet_experiment = comet_ml.Experiment(**comet_config)
+            self.loggers.append('comet')
+
+    def write(self, data: LoggingData) -> None:
+        if 'wandb' in self.loggers:
+            self.wandb_run.log(data, step=self.iter, commit=False)
+        if 'comet' in self.loggers:
+            for key, value in data.items():
+                if value is not None:
+                    self.comet_experiment.log_metric(key, value, step=self.iter)
+        self.iter += 1
+
+    def close(self) -> None:
+        if 'wandb' in self.loggers:
+            self.wandb_run.finish()
+        if 'comet' in self.loggers:
+            self.comet_experiment.end()

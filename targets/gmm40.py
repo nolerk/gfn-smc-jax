@@ -3,7 +3,6 @@ import chex
 import distrax
 import jax
 import jax.numpy as jnp
-import wandb
 from matplotlib import pyplot as plt
 
 from utils.plot_utils import plot_contours_2D, plot_marginal_pair
@@ -118,7 +117,7 @@ class GMM40(Target):
             plt.xticks([])
             plt.yticks([])
 
-            wb = {f"figures/{prefix + '_' if prefix else ''}vis": [wandb.Image(fig)]}
+            wb = {f"figures/{prefix + '_' if prefix else ''}vis": [fig]}
             if show:
                 plt.show()
             else:

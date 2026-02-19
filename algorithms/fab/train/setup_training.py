@@ -44,7 +44,7 @@ class TrainConfig(NamedTuple):
     update: Callable
     eval_and_plot_fn: Callable
     save_model: bool
-    use_wandb: bool
+    use_logger: bool
     verbose: bool
 
 
@@ -200,7 +200,7 @@ def setup_fab_config(cfg, target) -> TrainConfig:
         update=step,
         eval_and_plot_fn=eval_and_plot_fn,
         save_model=cfg.save_model,
-        use_wandb=cfg.use_wandb,
+        use_logger=cfg.use_logger,
         verbose=cfg.verbose,
     )
     return train_config

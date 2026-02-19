@@ -8,12 +8,13 @@ import pickle
 from time import time
 
 import jax
-import wandb
+# import wandb  # Replaced by unified logger
 
 from algorithms.common.eval_methods.sis_methods import get_eval_fn
 from algorithms.fab.train.setup_training import setup_fab_config
 from eval.utils import extract_last_entry
 from utils.path_utils import make_model_dir, project_path
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -72,7 +73,7 @@ def fab_trainer(cfg, target):
 
             print_results(iteration, logger, config)
 
-            if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger))
+            if cfg.use_logger:
+                log(extract_last_entry(logger))
 
     return logger, test_losses

@@ -50,7 +50,6 @@ import jax
 import jax.numpy as jnp
 import jax.random
 import matplotlib.pyplot as plt
-import wandb
 
 from targets.base_target import Target
 
@@ -183,7 +182,7 @@ class LennardJones(Target):
 
         # =========================================
 
-        wb = {"figures/vis": [wandb.Image(fig)]}
+        wb = {"figures/vis": [fig]}
 
         if show:
             plt.show()

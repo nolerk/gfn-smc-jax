@@ -5,7 +5,6 @@ import jax
 import jax.numpy as jnp
 
 import matplotlib.pyplot as plt
-import wandb
 
 from targets.base_target import Target
 
@@ -145,7 +144,7 @@ class ManyWellEnergy(Target):
                 if i == 1:
                     axs[i, j].set_xlabel(f"$x_{j + 1 + 2}$")
 
-        wb = {"figures/vis": [wandb.Image(fig)]}
+        wb = {"figures/vis": [fig]}
         if show:
             plt.show()
         else:
@@ -299,7 +298,7 @@ class ManyWell2(Target):
                 if i == 1:
                     axs[i, j].set_xlabel(f"$x_{j + 1 + 2}$")
 
-        wb = {"figures/vis": [wandb.Image(fig)]}
+        wb = {"figures/vis": [fig]}
         if show:
             plt.show()
         else:

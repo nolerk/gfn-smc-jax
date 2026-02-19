@@ -9,9 +9,9 @@ import jax.scipy as jscipy
 import matplotlib.pyplot as plt
 import ml_collections
 import numpy as np
-import wandb
 from chex import Array
 
+from utils.logger import log, log_image
 from utils.plot_utils import plot_contours_2D, plot_marginal_pair
 
 
@@ -35,8 +35,8 @@ def make_grid(x: Array, im_size: int, n: int = 16, wandb_prefix: str = ""):
             ax[i, j].imshow(x[i * n_rows + j], cmap="gray")
             ax[i, j].axis("off")
 
-    # Log into wandb
-    wandb.log({f"{wandb_prefix}": fig})
+    # Log using unified logger
+    log_image(wandb_prefix, fig)
     plt.close()
 
 
@@ -47,7 +47,7 @@ def plot_gmm(samples, log_p_fn, loc_scaling, wandb_prefix: str = ""):
     plot_contours_2D(log_p_fn, axs, bound=plot_bound, levels=50)
     axs.set_title("samples")
     plt.tight_layout()
-    wandb.log({f"{wandb_prefix}": wandb.Image(fig)})
+    log_image(wandb_prefix, fig)
     plt.close()
 
 
@@ -192,7 +192,7 @@ def log_final_losses(eval_losses, log_prefix=""):
     final_ln_Z = jnp.mean(final_ln_Zs)
     final_ln_Z_std = jnp.std(final_ln_Zs)
 
-    wandb.log(
+    log(
         {
             f"elbo_final{log_prefix}": np.array(final_elbo),
             f"final_ln_Z{log_prefix}": np.array(final_ln_Z),

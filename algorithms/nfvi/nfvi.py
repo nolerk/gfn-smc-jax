@@ -5,11 +5,12 @@ import chex
 import jax
 import jax.numpy as jnp
 import optax
-import wandb
+# import wandb  # Replaced by unified logger
 
 import algorithms.common.types as tp
 from algorithms.common.eval_methods.tractable_density_methods import get_eval_fn
 from targets.base_target import Target
+from utils.logger import log
 from utils.print_utils import print_results
 
 Array = jnp.ndarray
@@ -133,5 +134,5 @@ def outer_loop_vi(
 
                 print_results(step, logger, cfg)
 
-                if cfg.use_wandb:
-                    wandb.log(logger)
+                if cfg.use_logger:
+                    log(logger)

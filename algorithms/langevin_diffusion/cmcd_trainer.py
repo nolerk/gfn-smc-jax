@@ -2,7 +2,7 @@ from time import time
 
 import jax
 import jax.numpy as jnp
-import wandb
+# import wandb  # Replaced by unified logger
 
 from algorithms.langevin_diffusion.cmcd import (
     compute_elbo,
@@ -14,6 +14,7 @@ from algorithms.langevin_diffusion.ld_eval import eval_langevin
 from algorithms.langevin_diffusion.ld_init import initialize_cmcd
 from algorithms.langevin_diffusion.ld_utils import collect_eps
 from algorithms.langevin_diffusion.optimizer import adam
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -96,7 +97,7 @@ def cmcd_trainer(
 
             print_results(i, logger, cfg)
 
-            if cfg.use_wandb:
-                wandb.log(logger)
+            if cfg.use_logger:
+                log(logger)
 
     return (train_losses, test_losses), False, params_flat, logger

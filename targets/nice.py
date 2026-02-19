@@ -12,7 +12,6 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import wandb
 from flax import linen as nn
 from flax.training import checkpoints
 
@@ -221,7 +220,7 @@ class NiceTarget(Target):
 
         # plt.savefig(os.path.join(project_path('./figures/'), f"{prefix}nice.pdf"), bbox_inches='tight', pad_inches=0.1)
         # Log into wandb
-        wb = {"figures/vis": [wandb.Image(fig)]}
+        wb = {"figures/vis": [fig]}
         if show:
             plt.show()
 

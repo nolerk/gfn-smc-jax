@@ -11,7 +11,7 @@ import chex
 import distrax
 import jax
 import jax.numpy as jnp
-import wandb
+# import wandb  # Replaced by unified logger
 
 import algorithms.common.types as tp
 import blackjax
@@ -342,5 +342,5 @@ def smc_advanced(cfg, target):
     logger["wallclock"] = time_elapsed
     logger["vis"] = target.visualise(final_samples)
 
-    if cfg.use_wandb:
-        wandb.log(logger)
+    if cfg.use_logger:
+        log(logger)

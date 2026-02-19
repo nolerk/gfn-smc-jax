@@ -5,7 +5,6 @@ import chex
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-import wandb
 
 from targets.base_target import Target
 
@@ -66,7 +65,7 @@ class Phi4Distr(Target):
         magnetization = samples.mean(-1)
         ax.hist(magnetization, bins=20, edgecolor="black", density=True)
         plt.show()
-        wb = {"figures/vis": [wandb.Image(fig)]}
+        wb = {"figures/vis": [fig]}
         if show:
             plt.show()
         return wb

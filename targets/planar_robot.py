@@ -4,7 +4,6 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import wandb
 
 from eval.utils import avg_stddiv_across_marginals
 from targets.base_target import Target
@@ -43,7 +42,7 @@ def visualize_samples(samples, num_goals, show=False):
     for i in range(0, num_samples):
         visualize_n_link(samples[i], num_dimensions, np.ones(num_dimensions))
 
-    wb = {"figures/vis": [wandb.Image(fig)]}
+    wb = {"figures/vis": [fig]}
     if show:
         plt.show()
     return wb

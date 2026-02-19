@@ -8,7 +8,6 @@ import jax.random as random
 import numpy as np
 import numpyro.distributions as dist
 import pandas as pd
-import wandb
 from matplotlib import pyplot as plt
 from scipy.stats import wishart
 
@@ -72,7 +71,7 @@ class Gaussian(Target):
             # plt.xticks([])
             # plt.yticks([])
             # plt.savefig(os.path.join(project_path('./figures/'), f"gmm2D.pdf"), bbox_inches='tight', pad_inches=0.1)
-            wb = {"figures/vis": [wandb.Image(fig)]}
+            wb = {"figures/vis": [fig]}
             if show:
                 plt.show()
 

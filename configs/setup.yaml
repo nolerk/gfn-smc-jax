@@ -1,4 +1,27 @@
-# Wandb
+# Logger configuration
+logger:
+  # Enable/disable logging backends
+  use_wandb: False
+  use_comet: True
+  
+  # Wandb configuration
+  wandb:
+    entity: # Your identity here
+    project: sampling_bench
+    resume: allow
+    mode: run
+    name:
+    tags:
+    id:
+  
+  # Comet.ml configuration
+  comet:
+    workspace: diffusion-samplers-for-integrals
+    project_name: sampling_bench
+    experiment_name:
+    tags:
+
+# Keep backward compatibility
 wandb:
   entity: # Your identity here
   project: sampling_bench

@@ -7,13 +7,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import wandb
+# import wandb  # Replaced by unified logger
 
 import algorithms.common.types as tp
 from algorithms.common import flow_transport
 from algorithms.common.eval_methods.sis_methods import get_eval_fn
 from eval.utils import extract_last_entry
 from targets.base_target import Target
+from utils.logger import log
 from utils.print_utils import print_results
 
 Array = tp.Array
@@ -474,8 +475,8 @@ def outer_loop_aft(
 
     print_results(0, logger, cfg)
 
-    if cfg.use_wandb:
-        wandb.log(extract_last_entry(logger))
+    if cfg.use_logger:
+        log(extract_last_entry(logger))
 
 
 def reverse_is_inner_loop(

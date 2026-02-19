@@ -8,13 +8,13 @@ import distrax
 import jax
 import jax.numpy as jnp
 import optax
-import wandb
 from jax import grad, jit
 
 from algorithms.common.eval_methods.tractable_density_methods import get_eval_fn
 from algorithms.common.utils import get_optimizer
 from eval.utils import extract_last_entry
 from targets.base_target import Target
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -118,5 +118,5 @@ def mfvi_trainer(cfg, target: Target):
 
             print_results(step, logger, cfg)
 
-            if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger))
+            if cfg.use_logger:
+                log(extract_last_entry(logger))

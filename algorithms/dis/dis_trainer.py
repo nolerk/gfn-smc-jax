@@ -9,12 +9,13 @@ from time import time
 import distrax
 import jax
 import jax.numpy as jnp
-import wandb
+# import wandb  # Replaced by unified logger
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
 from algorithms.dis.dis_rnd import neg_elbo, rnd
 from eval.utils import extract_last_entry
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -73,5 +74,5 @@ def dis_trainer(cfg, target):
             logger.update(eval_fn(model_state, key))
             print_results(step, logger, cfg)
 
-            if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger), step=step)
+            if cfg.use_logger:
+                log(extract_last_entry(logger), step=step)

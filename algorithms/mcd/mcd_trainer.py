@@ -11,7 +11,7 @@ import distrax
 import jax
 import jax.numpy as jnp
 import optax
-import wandb
+# import wandb  # Replaced by unified logger
 from flax.training import train_state
 
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
@@ -19,6 +19,7 @@ from algorithms.common.models.pisgrad_net import PISGRADNet
 from algorithms.mcd.mcd_rnd import neg_elbo, rnd
 from eval.utils import extract_last_entry
 from utils.helper import inverse_softplus
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -142,5 +143,5 @@ def mcd_trainer(cfg, target):
             logger.update(eval_fn(model_state, key))
             print_results(step, logger, cfg)
 
-            if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger))
+            if cfg.use_logger:
+                log(extract_last_entry(logger))

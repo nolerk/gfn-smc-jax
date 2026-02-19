@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 import pandas as pd
-import wandb
 from matplotlib import pyplot as plt
 
 from targets.base_target import Target
@@ -98,7 +97,7 @@ class StudentTMixtureModel(Target):
             # plt.ylabel('Y')
             plt.xticks([])
             plt.yticks([])
-            wb = {"figures/vis": [wandb.Image(fig)]}
+            wb = {"figures/vis": [fig]}
             if show:
                 plt.show()
 

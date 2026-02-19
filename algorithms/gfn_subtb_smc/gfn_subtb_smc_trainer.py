@@ -8,7 +8,7 @@ from functools import partial
 import distrax
 import jax
 import jax.numpy as jnp
-import wandb
+# import wandb  # Replaced by unified logger
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
@@ -30,6 +30,7 @@ from algorithms.gfn_tb.buffer import build_terminal_state_buffer
 from algorithms.gfn_tb.sampling_utils import get_sampling_func
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -214,7 +215,7 @@ def gfn_subtb_smc_trainer(cfg, target):
             target.log_prob,
             target.log_prob_t,
         )
-        wandb.log(
+        log(
             {
                 key.replace("figures/", "figures_true/"): value
                 for key, value in true_vis_dict.items()
@@ -314,14 +315,14 @@ def gfn_subtb_smc_trainer(cfg, target):
                     jnp.zeros_like(log_rewards),  # loss-prioritized buffer should not be used here
                 )
 
-        if cfg.use_wandb:
+        if cfg.use_logger:
             log_dict = {
                 "tb_loss": jnp.mean(tb_losses),
                 "subtb_loss": jnp.mean(subtb_losses.mean(-1)),
             }
             if "logZ" in model_state.params["params"]:
                 log_dict["logZ_learned"] = model_state.params["params"]["logZ"]
-            wandb.log(log_dict, step=it)
+            log(log_dict, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)
@@ -365,7 +366,7 @@ def gfn_subtb_smc_trainer(cfg, target):
                         if target_xs is not None
                         else jnp.inf
                     )
-                if cfg.use_wandb:
+                if cfg.use_logger:
                     vis_dict = target.visualise(samples=buffer_xs)
                     logger.update(
                         {f"{key}_buffer_samples": value for key, value in vis_dict.items()}
@@ -387,11 +388,11 @@ def gfn_subtb_smc_trainer(cfg, target):
             #             if target_xs is not None
             #             else jnp.inf
             #         )
-            #     if cfg.use_wandb:
+            #     if cfg.use_logger:
             #         vis_dict = target.visualise(samples=smc_xs)
             #         logger.update({f"{key}_smc_samples": value for key, value in vis_dict.items()})
 
             print_results(it, logger, cfg)
 
-            if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger), step=it)
+            if cfg.use_logger:
+                log(extract_last_entry(logger), step=it)

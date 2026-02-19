@@ -6,7 +6,6 @@ import distrax
 import jax.numpy as jnp
 import jax.random
 import matplotlib.pyplot as plt
-import wandb
 
 from targets.base_target import Target
 
@@ -78,7 +77,7 @@ class Funnel(Target):
 
         # plt.savefig(os.path.join(project_path('./samples/funnel/'), f"{prefix}funnel.pdf"), bbox_inches='tight', pad_inches=0.1)
 
-        wb = {"figures/vis": [wandb.Image(fig)]}
+        wb = {"figures/vis": [fig]}
         if show:
             plt.show()
 

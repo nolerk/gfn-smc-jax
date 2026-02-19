@@ -2,7 +2,7 @@ from time import time
 
 import jax
 import jax.numpy as jnp
-import wandb
+# import wandb  # Replaced by unified logger
 
 from algorithms.langevin_diffusion.ld_eval import eval_langevin
 from algorithms.langevin_diffusion.ld_init import initialize_ldvi
@@ -11,6 +11,7 @@ from algorithms.langevin_diffusion.optimizer import adam
 from algorithms.langevin_diffusion.ud_langevin import compute_elbo, per_sample_elbo, per_sample_eubo
 from eval.utils import extract_last_entry
 from utils.path_utils import make_model_dir
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -89,7 +90,7 @@ def ldvi_trainer(
 
             print_results(i, logger, cfg)
 
-            if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger))
+            if cfg.use_logger:
+                log(extract_last_entry(logger))
 
     return (train_losses, test_losses), False, params_flat, logger

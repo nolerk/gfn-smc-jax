@@ -7,7 +7,6 @@ import jax.numpy as jnp
 import jax.random
 import matplotlib.pyplot as plt
 import numpy as np
-import wandb
 
 from targets.base_target import Target
 
@@ -105,7 +104,7 @@ class GMM1D(Target):
         # Plot the function g(x) on the same axes
         ax.plot(x_values, log_probs, label="$g(x)$", color="black")
 
-        wb = {"figures/vis": wandb.Image(fig)}
+        wb = {"figures/vis": fig}
         if show:
             plt.show()
 

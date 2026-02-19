@@ -8,7 +8,7 @@ from functools import partial
 import distrax
 import jax
 import jax.numpy as jnp
-import wandb
+# import wandb  # Replaced by unified logger
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
@@ -18,6 +18,7 @@ from algorithms.gfn_subtb_smc.gfn_subtb_smc_rnd import batch_simulate_fwd_subtra
 from algorithms.gfn_tb.sampling_utils import get_sampling_func
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -185,14 +186,14 @@ def gfn_subtb_smc_nobuffer_trainer(cfg, target):
             )
             model_state = model_state.apply_gradients(grads=grads)
 
-        if cfg.use_wandb:
+        if cfg.use_logger:
             log_dict = {
                 "tb_loss": jnp.mean(tb_losses),
                 "subtb_loss": jnp.mean(subtb_losses.mean(-1)),
             }
             if "logZ" in model_state.params["params"]:
                 log_dict["logZ_learned"] = model_state.params["params"]["logZ"]
-            wandb.log(log_dict, step=it)
+            log(log_dict, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)
@@ -203,5 +204,5 @@ def gfn_subtb_smc_nobuffer_trainer(cfg, target):
 
             print_results(it, logger, cfg)
 
-            if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger), step=it)
+            if cfg.use_logger:
+                log(extract_last_entry(logger), step=it)

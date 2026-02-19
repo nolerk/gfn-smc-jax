@@ -6,7 +6,6 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import numpyro.distributions as dist
-import wandb
 from matplotlib import pyplot as plt
 from scipy.stats import wishart
 
@@ -134,7 +133,7 @@ class GaussianMixtureModel(Target):
             plt.xticks([])
             plt.yticks([])
 
-            wb = {f"figures/{prefix + '_' if prefix else ''}vis": [wandb.Image(fig)]}
+            wb = {f"figures/{prefix + '_' if prefix else ''}vis": [fig]}
             if show:
                 plt.show()
             else:

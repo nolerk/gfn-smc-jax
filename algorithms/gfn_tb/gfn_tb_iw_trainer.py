@@ -8,7 +8,7 @@ from functools import partial
 import distrax
 import jax
 import jax.numpy as jnp
-import wandb
+# import wandb  # Replaced by unified logger
 
 from algorithms.common.diffusion_related.init_model import init_model
 from algorithms.common.eval_methods.stochastic_oc_methods import get_eval_fn
@@ -16,6 +16,7 @@ from algorithms.dds.dds_rnd import cos_sq_fn_step_scheme
 from algorithms.gfn_tb.gfn_tb_rnd import rnd, loss_fn
 from algorithms.gfn_tb.utils import get_invtemp
 from eval.utils import extract_last_entry
+from utils.logger import log
 from utils.print_utils import print_results
 
 
@@ -130,10 +131,10 @@ def gfn_tb_iw_trainer(cfg, target):
             )
             model_state = model_state.apply_gradients(grads=grads)
 
-        if cfg.use_wandb:
-            wandb.log({"tb_loss": jnp.mean(losses)}, step=it)
+        if cfg.use_logger:
+            log({"tb_loss": jnp.mean(losses)}, step=it)
             if loss_type == "tb":
-                wandb.log({"logZ_learned": model_state.params["params"]["logZ"]}, step=it)
+                log({"logZ_learned": model_state.params["params"]["logZ"]}, step=it)
 
         if (it % eval_freq == 0) or (it == alg_cfg.iters - 1):
             key, key_gen = jax.random.split(key_gen)
@@ -144,5 +145,5 @@ def gfn_tb_iw_trainer(cfg, target):
 
             print_results(it, logger, cfg)
 
-            if cfg.use_wandb:
-                wandb.log(extract_last_entry(logger), step=it)
+            if cfg.use_logger:
+                log(extract_last_entry(logger), step=it)
