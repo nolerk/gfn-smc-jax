@@ -47,6 +47,6 @@ class SD:
             geom,
             x=geom.x,
             y=geom.y,
-        ).divergence
+        )[1].divergence
 
         return sd
