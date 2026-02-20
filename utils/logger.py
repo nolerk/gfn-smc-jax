@@ -128,7 +128,19 @@ class CometLogger(Logger):
     def log(self, metrics: Dict[str, Any], step: Optional[int] = None) -> None:
         for key, value in metrics.items():
             if value is not None:
-                self.experiment.log_metric(key, value, step=step)
+                # Handle matplotlib figures
+                if isinstance(value, plt.Figure):
+                    self.experiment.log_figure(figure=value, figure_name=key, step=step)
+                # Handle lists of figures
+                elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], plt.Figure):
+                    for i, fig in enumerate(value):
+                        self.experiment.log_figure(figure=fig, figure_name=f"{key}_{i}", step=step)
+                # Handle scalar metrics
+                else:
+                    try:
+                        self.experiment.log_metric(key, value, step=step)
+                    except Exception:
+                        pass  # Skip values that can't be logged as metrics
     
     def log_image(self, key: str, image: Any, step: Optional[int] = None) -> None:
         # Handle different image types
