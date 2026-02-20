@@ -12,6 +12,9 @@ def get_eval_fn(cfg, target, target_samples):
         "logZ/forward": [],
         "logZ/delta_reverse": [],
         "logZ/reverse": [],
+        "Z/delta_forward": [],
+        "Z/delta_reverse": [],
+        "Z/delta_elbo": [],
         "ESS/forward": [],
         "ESS/reverse": [],
         "discrepancies/mmd": [],
@@ -28,9 +31,20 @@ def get_eval_fn(cfg, target, target_samples):
 
         if target.log_Z is not None:
             logger["logZ/delta_reverse"].append(jnp.abs(rev_lnz - target.log_Z))
+            # Delta Z (without log) - reverse
+            Z_reverse = jnp.exp(rev_lnz)
+            Z_ground_truth = jnp.exp(target.log_Z)
+            logger["Z/delta_reverse"].append(jnp.abs(Z_reverse - Z_ground_truth))
 
         logger["logZ/reverse"].append(rev_lnz)
         logger["KL/elbo"].append(elbo)
+        
+        # Delta Z elbo (Z computed from ELBO-IS vs ground truth)
+        if target.log_Z is not None:
+            Z_elbo = jnp.exp(elbo)
+            Z_ground_truth = jnp.exp(target.log_Z)
+            logger["Z/delta_elbo"].append(jnp.abs(Z_elbo - Z_ground_truth))
+        
         logger["other/target_log_prob"].append(jnp.mean(target.log_prob(samples)))
         logger["other/delta_mean_marginal_std"].append(
             jnp.abs(avg_stddiv_across_marginals(samples) - target.marginal_std)
@@ -38,6 +52,10 @@ def get_eval_fn(cfg, target, target_samples):
         if cfg.compute_forward_metrics and (target_samples is not None):
             if target.log_Z is not None:
                 logger["logZ/delta_forward"].append(jnp.abs(fwd_lnz - target.log_Z))
+                # Delta Z (without log) - forward
+                Z_forward = jnp.exp(fwd_lnz)
+                Z_ground_truth = jnp.exp(target.log_Z)
+                logger["Z/delta_forward"].append(jnp.abs(Z_forward - Z_ground_truth))
             logger["logZ/forward"].append(fwd_lnz)
             logger["KL/eubo"].append(eubo)
 
