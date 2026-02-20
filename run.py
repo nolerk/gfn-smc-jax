@@ -9,7 +9,7 @@ import matplotlib
 from omegaconf import DictConfig, OmegaConf
 
 from utils.helper import flatten_dict, reset_device_memory
-from utils.logger import init_logger, log_code, set_summary, finish
+from utils.logger import init_logger, log_code, set_summary, finish, set_logger
 from utils.train_selector import get_train_fn
 
 
@@ -37,6 +37,7 @@ def main(cfg: DictConfig) -> None:
             cfg,
             config_dict=flatten_dict(OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
         )
+        set_logger(logger)
         log_code(".")
     
     train_fn = get_train_fn(cfg.algorithm.name)

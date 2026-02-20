@@ -145,7 +145,7 @@ class CometLogger(Logger):
                 self.experiment.log_image(img, name=f"{key}_{i}", step=step)
     
     def log_code(self, path: str = ".") -> None:
-        self.experiment.log_code(path)
+        self.experiment.log_code(folder=path)
     
     def set_summary(self, key: str, value: Any) -> None:
         # Comet doesn't have a direct summary equivalent, use log_other
