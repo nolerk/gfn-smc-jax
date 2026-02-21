@@ -6,6 +6,12 @@ def print_results(step, logger, config):
             string += f"EUBO {float(logger['KL/eubo'][-1]):.4f}; "
         if "discrepancies/sd" in logger and len(logger["discrepancies/sd"]) > 0:
             string += f"SD {float(logger['discrepancies/sd'][-1]):.4f}; "
+        if "Z/delta_forward" in logger and len(logger["Z/delta_forward"]) > 0:
+            string += f"Z_delta_forward {float(logger['Z/delta_forward'][-1]):.4f}; "
+        if "Z/delta_reverse" in logger and len(logger["Z/delta_reverse"]) > 0:
+            string += f"Z_delta_reverse {float(logger['Z/delta_reverse'][-1]):.4f}; "
+        if "Z/delta_elbo" in logger and len(logger["Z/delta_elbo"]) > 0:
+            string += f"Z_delta_elbo {float(logger['Z/delta_elbo'][-1]):.4f}; "
 
         try:
             string += f"reverse_ESS {float(logger['ESS/reverse'][-1]):.6f}; "
