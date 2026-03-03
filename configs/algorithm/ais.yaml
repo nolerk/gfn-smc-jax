@@ -1,0 +1,13 @@
+# Annealed Importance Sampling (AIS)
+# Neal, R. M. (1998). Annealed importance sampling.
+# Statistics and Computing, 11(2), 125-139.
+name: ais
+batch_size: ${target.all.batch_size}
+num_temps: 128
+
+# Initial/proposal distribution parameters
+init_mean: 0.
+init_std: ${target.smc.init_std}
+
+defaults:
+  - mcmc/hmc

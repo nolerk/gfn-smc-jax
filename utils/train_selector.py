@@ -19,6 +19,11 @@ def get_train_fn(alg_name):
 
         return smc_trainer
 
+    elif alg_name == "ais":
+        from algorithms.ais.ais_trainer import ais_trainer
+
+        return ais_trainer
+
     elif alg_name == "smc_advanced":
         from algorithms.smc.smc_advanced import smc_advanced
 

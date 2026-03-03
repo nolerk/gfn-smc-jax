@@ -49,7 +49,7 @@ def get_eval_fn(cfg, target, target_samples):
         logger["other/delta_mean_marginal_std"].append(
             jnp.abs(avg_stddiv_across_marginals(samples) - target.marginal_std)
         )
-        if cfg.compute_forward_metrics and (target_samples is not None):
+        if cfg.compute_forward_metrics and (target_samples is not None) and (fwd_lnz is not None):
             if target.log_Z is not None:
                 logger["logZ/delta_forward"].append(jnp.abs(fwd_lnz - target.log_Z))
                 # Delta Z (without log) - forward
