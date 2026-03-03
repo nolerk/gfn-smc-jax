@@ -120,6 +120,7 @@ class CometLogger(Logger):
             comet_config['log_code'] = False  # We'll log code separately
         
         self.experiment = comet_ml.Experiment(**comet_config)
+        self.experiment.set_name(comet_config['experiment_name'])
         
         # Log config as parameters if provided
         if 'log_config' in kwargs:
