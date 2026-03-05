@@ -12,6 +12,8 @@ def print_results(step, logger, config):
             string += f"Z_delta_reverse {float(logger['Z/delta_reverse'][-1]):.4f}; "
         if "Z/delta_elbo" in logger and len(logger["Z/delta_elbo"]) > 0:
             string += f"Z_delta_elbo {float(logger['Z/delta_elbo'][-1]):.4f}; "
+        if "Z/delta_eubo" in logger and len(logger["Z/delta_eubo"]) > 0:
+            string += f"Z_delta_eubo {float(logger['Z/delta_eubo'][-1]):.4f}; "
 
         try:
             string += f"reverse_ESS {float(logger['ESS/reverse'][-1]):.6f}; "

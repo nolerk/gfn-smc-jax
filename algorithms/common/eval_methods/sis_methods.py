@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 
 from eval import discrepancies
@@ -15,10 +16,13 @@ def get_eval_fn(cfg, target, target_samples):
         "Z/delta_forward": [],
         "Z/delta_reverse": [],
         "Z/delta_elbo": [],
+        "Z/delta_eubo": [],
         "ESS/forward": [],
         "ESS/reverse": [],
         "discrepancies/mmd": [],
         "discrepancies/sd": [],
+        "discrepancies/mmd_target": [],
+        "discrepancies/sd_target": [],
         "other/target_log_prob": [],
         "other/delta_mean_marginal_std": [],
         "other/EMC": [],
@@ -31,7 +35,6 @@ def get_eval_fn(cfg, target, target_samples):
 
         if target.log_Z is not None:
             logger["logZ/delta_reverse"].append(jnp.abs(rev_lnz - target.log_Z))
-            # Delta Z (without log) - reverse
             Z_reverse = jnp.exp(rev_lnz)
             Z_ground_truth = jnp.exp(target.log_Z)
             logger["Z/delta_reverse"].append(jnp.abs(Z_reverse - Z_ground_truth))
@@ -39,10 +42,8 @@ def get_eval_fn(cfg, target, target_samples):
         logger["logZ/reverse"].append(rev_lnz)
         logger["KL/elbo"].append(elbo)
         
-        # Delta Z elbo (Z computed from ELBO-IS vs ground truth)
         if target.log_Z is not None:
             Z_elbo = jnp.exp(elbo)
-            Z_ground_truth = jnp.exp(target.log_Z)
             logger["Z/delta_elbo"].append(jnp.abs(Z_elbo - Z_ground_truth))
         
         logger["other/target_log_prob"].append(jnp.mean(target.log_prob(samples)))
@@ -52,10 +53,10 @@ def get_eval_fn(cfg, target, target_samples):
         if cfg.compute_forward_metrics and (target_samples is not None) and (fwd_lnz is not None):
             if target.log_Z is not None:
                 logger["logZ/delta_forward"].append(jnp.abs(fwd_lnz - target.log_Z))
-                # Delta Z (without log) - forward
                 Z_forward = jnp.exp(fwd_lnz)
-                Z_ground_truth = jnp.exp(target.log_Z)
                 logger["Z/delta_forward"].append(jnp.abs(Z_forward - Z_ground_truth))
+                Z_eubo = jnp.exp(eubo)
+                logger["Z/delta_eubo"].append(jnp.abs(Z_eubo - Z_ground_truth))
             logger["logZ/forward"].append(fwd_lnz)
             logger["KL/eubo"].append(eubo)
 
@@ -70,6 +71,22 @@ def get_eval_fn(cfg, target, target_samples):
                 if target_samples is not None
                 else jnp.inf
             )
+            if len(logger[f"discrepancies/{d}_target"]) == 0:
+                discrepancies_target = []
+                for seed in range(1, 6):
+                    samples_to_compare = target.sample(
+                        jax.random.PRNGKey(seed), (cfg.eval_samples,)
+                    )
+                    discrepancies_target.append(
+                        getattr(discrepancies, f"compute_{d}")(
+                            target_samples, samples_to_compare, cfg
+                        )
+                        if target_samples is not None
+                        else jnp.inf
+                    )
+                logger[f"discrepancies/{d}_target"].append(
+                    jnp.mean(jnp.array(discrepancies_target))
+                )
         if cfg.moving_average.use_ma:
             for key, value in moving_averages(
                 logger, window_size=cfg.moving_average.window_size
