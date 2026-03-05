@@ -15,6 +15,7 @@ def per_sample_rnd(
     num_steps,
     noise_schedule,
     use_lp,
+    jacobian_method="full",
     stop_grad=False,
     prior_to_target=True,
     terminal_x: Array | None = None,
@@ -22,9 +23,12 @@ def per_sample_rnd(
     dim, ref_log_prob = sde_tuple
     target_log_prob = target.log_prob
 
-    def langevin_init_fn(x, t, T, target_log_prob):
+    def original_langevin_init_fn(x, t, T, target_log_prob):
         tr = t / T
         return (1 - tr) * target_log_prob(x)
+    
+    def langevin_init_fn(x, t, T, target_log_prob):
+        return target_log_prob(x)
 
     sigmas = noise_schedule
     langevin_init = partial(langevin_init_fn, T=num_steps, target_log_prob=target_log_prob)
@@ -92,9 +96,17 @@ def per_sample_rnd(
         model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
 
         # Compute (running) Radon-Nikodym derivative components
-        running_cost = 0.5 * jnp.square(jnp.linalg.norm(model_output)) * dt
+        
+        # running_cost = 0.5 * jnp.square(jnp.linalg.norm(model_output)) * dt
+        # fwd_noise = (1 / (sigma_t * jnp.sqrt(dt))) * (x_new - (x + sigma_t * dt * model_output))
+        # stochastic_cost = (model_output * fwd_noise).sum() * jnp.sqrt(dt)
+        
+        mu_fwd = x + sigma_t * dt * model_output
+        mu_bwd = shrink * x_new
+        mu_diff = mu_fwd - mu_bwd
+        running_cost = 0.5 * jnp.square(jnp.linalg.norm(mu_diff)) * dt
         fwd_noise = (1 / (sigma_t * jnp.sqrt(dt))) * (x_new - (x + sigma_t * dt * model_output))
-        stochastic_cost = (model_output * fwd_noise).sum() * jnp.sqrt(dt)
+        stochastic_cost = 0.0
 
         next_state = (x, sigma_int, key_gen)
         per_step_output = (running_cost, stochastic_cost, x)
@@ -133,13 +145,15 @@ def rnd(
     num_steps,
     noise_schedule,
     use_lp,
+    jacobian_method="full",
     stop_grad=False,
     prior_to_target=True,
     terminal_xs: Array | None = None,
+    return_traj: bool = False,
 ):
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
-        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None, None, 0)
+        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None, None, None, 0)
     )(
         seeds,
         model_state,
@@ -149,12 +163,16 @@ def rnd(
         num_steps,
         noise_schedule,
         use_lp,
+        jacobian_method,
         stop_grad,
         prior_to_target,
         terminal_xs,
     )
 
-    return x_0, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs
+    out = [x_0, running_costs.sum(1), stochastic_costs.sum(1), terminal_costs]
+    if return_traj:
+        out.append(x_t)
+    return tuple(out)
 
 
 def neg_elbo(
@@ -179,7 +197,7 @@ def neg_elbo(
         num_steps,
         noise_schedule,
         use_lp,
-        stop_grad,
+        stop_grad=stop_grad,
     )
     samples, running_costs, _, terminal_costs = aux
     neg_elbo_vals = running_costs + terminal_costs
