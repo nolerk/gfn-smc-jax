@@ -172,7 +172,7 @@ def rnd(
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
         per_sample_rnd,
-        in_axes=(0, None, None, None, None, None, None, None, None, None, None, 0),
+        in_axes=(0, None, None, None, None, None, None, None, None, None, 0),
     )(
         seeds,
         model_state,
