@@ -43,7 +43,7 @@ def inner_loop_ais(
     step: int,
 ) -> Tuple[Array, Array, Array, Array]:
     """Inner loop of AIS - single annealing step.
-    
+
     AIS differs from SMC in that there is NO resampling.
     Each particle maintains its own independent weight trajectory.
 
@@ -61,38 +61,29 @@ def inner_loop_ais(
       log_normalizer_increment: Scalar log of normalizing constant increment.
       acceptance_tuple: Acceptance rates of samplers.
     """
-    # Compute weight update: w_t = w_{t-1} * p_{t-1}(x) / p_t(x)
-    # In log space: log_w_t = log_w_{t-1} + log p_{t-1}(x) - log p_t(x)
+    # Compute weight update: w_t = w_{t-1} * p_{t}(x) / p_{t-1}(x)
+    # In log space: log_w_t = log_w_{t-1} + log p_{t}(x) - log p_{t-1}(x)
     log_density_current = log_density(step, samples)
     log_density_previous = log_density(step - 1, samples)
-    deltas = log_density_previous - log_density_current
-    assert_equal_shape([log_density_current, log_density_previous, deltas])
-    
+    log_deltas = log_density_current - log_density_previous
+    assert_equal_shape([log_density_current, log_density_previous, log_deltas])
+
     # Update weights (no resampling in vanilla AIS)
-    log_weights_new = log_weights + deltas
-    
-    # Compute normalizer increment for this step
-    # Using self-normalized importance sampling estimator
-    log_normalizer_increment = jax.scipy.special.logsumexp(deltas) - jnp.log(deltas.shape[0])
-    elbo_increment = jnp.mean(-deltas)
-    
+    log_weights_new = log_weights + log_deltas
+
     # MCMC transition at current temperature
     markov_samples, acceptance_tuple = markov_kernel_apply(step, key, samples)
 
-    return markov_samples, log_weights_new, (log_normalizer_increment, elbo_increment), acceptance_tuple
+    return markov_samples, log_weights_new, acceptance_tuple
 
 
 def get_short_inner_loop_ais(
-    markov_kernel_by_step: MarkovKernelApply, 
-    density_by_step: LogDensityByStep
+    markov_kernel_by_step: MarkovKernelApply, density_by_step: LogDensityByStep
 ):
     """Get a short version of inner loop for JIT compilation."""
 
     def short_inner_loop(
-        rng_key: RandomKey, 
-        loc_samples: Array, 
-        loc_log_weights: Array, 
-        loc_step: int
+        rng_key: RandomKey, loc_samples: Array, loc_log_weights: Array, loc_step: int
     ):
         return inner_loop_ais(
             rng_key,
@@ -137,18 +128,19 @@ def outer_loop_ais(
     target_samples = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
     # Initialize samples from the proposal distribution
-    samples = initial_sampler(seed=jax.random.PRNGKey(0), sample_shape=(alg_cfg.batch_size,))
-    
-    # Initialize uniform weights: log(1/N) for each particle
-    log_weights = -jnp.log(alg_cfg.batch_size) * jnp.ones(alg_cfg.batch_size)
+    samples = initial_sampler(
+        seed=jax.random.PRNGKey(0), sample_shape=(alg_cfg.batch_size,)
+    )
+
+    log_weights = jnp.zeros(alg_cfg.batch_size)
 
     # JIT compile the inner loop
-    inner_loop_jit = jax.jit(get_short_inner_loop_ais(markov_kernel_by_step, density_by_step))
+    inner_loop_jit = jax.jit(
+        get_short_inner_loop_ais(markov_kernel_by_step, density_by_step)
+    )
 
     eval_fn, logger = get_eval_fn(cfg, target, target_samples)
 
-    ln_z = 0.0
-    elbo = 0.0
     start_time = time.time()
 
     acceptance_hmc = []
@@ -157,14 +149,11 @@ def outer_loop_ais(
     # Main AIS loop - iterate through annealing schedule
     for step in range(1, num_temps):
         subkey, key = jax.random.split(key)
-        samples, log_weights, ln_z_inc, acceptance = inner_loop_jit(
+        samples, log_weights, acceptance = inner_loop_jit(
             subkey, samples, log_weights, step
         )
-        ln_z_inc, elbo_inc = ln_z_inc
         acceptance_hmc.append(float(np.asarray(acceptance[0])))
         acceptance_rwm.append(float(np.asarray(acceptance[1])))
-        ln_z += ln_z_inc
-        elbo += elbo_inc
 
     finish_time = time.time()
     delta_time = finish_time - start_time
@@ -172,17 +161,20 @@ def outer_loop_ais(
     # Compute final estimates
     # Self-normalized importance sampling estimate of log Z
     ln_z_final = jax.scipy.special.logsumexp(log_weights) - jnp.log(alg_cfg.batch_size)
-    
+    elbo = jnp.mean(log_weights)
+
     # Effective sample size
-    ess = jnp.exp(2 * jax.scipy.special.logsumexp(log_weights) - 
-                  jax.scipy.special.logsumexp(2 * log_weights))
+    ess = jnp.exp(
+        2 * jax.scipy.special.logsumexp(log_weights)
+        - jax.scipy.special.logsumexp(2 * log_weights)
+    )
     ess_normalized = ess / alg_cfg.batch_size
 
     # Number of function evaluations
     nfe = 2 * alg_cfg.batch_size * (alg_cfg.num_temps - 1)
 
     logger = eval_fn(samples, elbo, ln_z_final, None, None)
-    
+
     logger["stats/wallclock"] = [delta_time]
     logger["stats/nfe"] = [nfe]
     logger["ESS/forward"] = [ess_normalized]
