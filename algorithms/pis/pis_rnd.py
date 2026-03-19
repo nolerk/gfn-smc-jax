@@ -2,8 +2,20 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+import numpyro.distributions as npdist
 
 from algorithms.common.types import Array
+
+
+def sample_kernel(key_gen, mean, scale):
+    key, key_gen = jax.random.split(key_gen)
+    eps = jnp.clip(jax.random.normal(key, shape=(mean.shape[0],)), -4.0, 4.0)
+    return mean + scale * eps, key_gen
+
+
+def log_prob_kernel(x, mean, scale):
+    dist = npdist.Independent(npdist.Normal(loc=mean, scale=scale), 1)
+    return dist.log_prob(x)
 
 
 def per_sample_rnd(
@@ -15,7 +27,6 @@ def per_sample_rnd(
     num_steps,
     noise_schedule,
     use_lp,
-    jacobian_method="full",
     stop_grad=False,
     prior_to_target=True,
     terminal_x: Array | None = None,
@@ -23,15 +34,13 @@ def per_sample_rnd(
     dim, ref_log_prob = sde_tuple
     target_log_prob = target.log_prob
 
-    def original_langevin_init_fn(x, t, T, target_log_prob):
-        tr = t / T
-        return (1 - tr) * target_log_prob(x)
-    
     def langevin_init_fn(x, t, T, target_log_prob):
         return target_log_prob(x)
 
     sigmas = noise_schedule
-    langevin_init = partial(langevin_init_fn, T=num_steps, target_log_prob=target_log_prob)
+    langevin_init = partial(
+        langevin_init_fn, T=num_steps, target_log_prob=target_log_prob
+    )
     dt = 1.0 / num_steps
 
     def simulate_prior_to_target(state, per_step_input):
@@ -50,17 +59,18 @@ def per_sample_rnd(
         else:
             langevin = jnp.zeros(x.shape[0])
         model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
-        key, key_gen = jax.random.split(key_gen)
-        noise = jnp.clip(jax.random.normal(key, shape=x.shape), -4, 4)
 
         # Euler-Maruyama integration of the SDE
-        x_new = x + sigma_t * model_output * dt + sigma_t * noise * jnp.sqrt(dt)
+        fwd_mean = x + sigma_t * model_output * dt
+        fwd_scale = sigma_t * jnp.sqrt(dt)
+        x_new, key_gen = sample_kernel(key_gen, fwd_mean, fwd_scale)
 
         if stop_grad:
             x_new = jax.lax.stop_gradient(x_new)
 
         # Compute (running) Radon-Nikodym derivative components
         running_cost = 0.5 * jnp.square(jnp.linalg.norm(model_output)) * dt
+        noise = (x_new - fwd_mean) / fwd_scale
         stochastic_cost = (model_output * noise).sum() * jnp.sqrt(dt)
 
         next_state = (x_new, sigma_int, key_gen)
@@ -83,10 +93,23 @@ def per_sample_rnd(
         if stop_grad:
             x_new = jax.lax.stop_gradient(x_new)
 
-        key, key_gen = jax.random.split(key_gen)
-        fwd_noise = jnp.clip(jax.random.normal(key, shape=x_new.shape), -4, 4)
+        bwd_mean = shrink * x_new
+        bwd_scale = sigma_t * jnp.sqrt(shrink * dt)
 
-        x = shrink * x_new + fwd_noise * sigma_t * jnp.sqrt(shrink * dt)
+        x, key_gen = jax.lax.cond(
+            step == 0,
+            lambda _: (jnp.zeros_like(x_new), key_gen),
+            lambda args: sample_kernel(*args),
+            operand=(key_gen, bwd_mean, bwd_scale),
+        )
+        if stop_grad:
+            x = jax.lax.stop_gradient(x)
+        bwd_log_prob = jax.lax.cond(
+            step == 0,
+            lambda _: jnp.array(0.0),
+            lambda args: log_prob_kernel(*args),
+            operand=(x, bwd_mean, bwd_scale),
+        )
 
         # Compute SDE components
         if use_lp:
@@ -94,34 +117,12 @@ def per_sample_rnd(
         else:
             langevin = jnp.zeros(x.shape[0])
 
-        def u_fn(_x: jnp.ndarray) -> jnp.ndarray:
-            if use_lp:
-                local_langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(_x, step))
-            else:
-                local_langevin = jnp.zeros(_x.shape[0])
-            u_out, _ = model_state.apply_fn(params, _x, step * jnp.ones(1), local_langevin)
-            return u_out
+        model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
+        fwd_mean = x + sigma_t * model_output * dt
+        fwd_scale = sigma_t * jnp.sqrt(dt)
+        fwd_log_prob = log_prob_kernel(x_new, fwd_mean, fwd_scale)
 
-        model_output = u_fn(x)
-        mu_fwd = x + sigma_t * dt * model_output
-        mu_bwd = shrink * x_new
-        diag_scale = sigma_t * jnp.ones(dim, dtype=x.dtype)
-        noise_unscaled = x_new - mu_fwd
-
-        # --- mode-specific: recover noise, compute logdetV ---
-        key_aux, key_gen = jax.random.split(key_gen)
-        fwd_noise = (1 / (sigma_t * jnp.sqrt(dt))) * (x_new - (x + sigma_t * dt * model_output))
-        logdetV = 0
-
-        # --- shared tail ---
-        fk_log_prob = -0.5 * (jnp.sum(fwd_noise**2) + dim * (jnp.log(2 * jnp.pi) + jnp.log(dt)) + 2 * logdetV)
-        bk_log_prob = jax.lax.cond(
-            step == num_steps,
-            lambda _: jnp.array(0.0),
-            lambda _: target_log_prob(x, mu_bwd, sigma_t * jnp.sqrt(shrink * dt)),
-            operand=None,
-        )
-        running_cost = fk_log_prob - bk_log_prob
+        running_cost = fwd_log_prob - bwd_log_prob
         stochastic_cost = 0.0
 
         next_state = (x, sigma_int, key_gen)
@@ -146,7 +147,9 @@ def per_sample_rnd(
         )
         init_x, final_sigma, _ = aux
 
-    terminal_cost = ref_log_prob(terminal_x, jnp.sqrt(final_sigma)) - target_log_prob(terminal_x)
+    terminal_cost = ref_log_prob(terminal_x, jnp.sqrt(final_sigma)) - target_log_prob(
+        terminal_x
+    )
     running_cost, stochastic_cost, x_t = per_step_output
     return terminal_x, running_cost, stochastic_cost, terminal_cost, x_t
 
@@ -161,7 +164,6 @@ def rnd(
     num_steps,
     noise_schedule,
     use_lp,
-    jacobian_method="full",
     stop_grad=False,
     prior_to_target=True,
     terminal_xs: Array | None = None,
@@ -169,7 +171,8 @@ def rnd(
 ):
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
-        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None, None, None, 0)
+        per_sample_rnd,
+        in_axes=(0, None, None, None, None, None, None, None, None, None, None, 0),
     )(
         seeds,
         model_state,
@@ -179,7 +182,6 @@ def rnd(
         num_steps,
         noise_schedule,
         use_lp,
-        jacobian_method,
         stop_grad,
         prior_to_target,
         terminal_xs,
