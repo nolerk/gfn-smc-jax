@@ -95,7 +95,6 @@ def per_sample_rnd(
 
         bwd_mean = shrink * x_new
         bwd_scale = sigma_t * jnp.sqrt(shrink * dt)
-
         x, key_gen = jax.lax.cond(
             step == 0,
             lambda _: (jnp.zeros_like(x_new), key_gen),
@@ -104,26 +103,20 @@ def per_sample_rnd(
         )
         if stop_grad:
             x = jax.lax.stop_gradient(x)
-        bwd_log_prob = jax.lax.cond(
-            step == 0,
-            lambda _: jnp.array(0.0),
-            lambda args: log_prob_kernel(*args),
-            operand=(x, bwd_mean, bwd_scale),
-        )
 
         # Compute SDE components
         if use_lp:
             langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
         else:
             langevin = jnp.zeros(x.shape[0])
-
         model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
-        fwd_mean = x + sigma_t * model_output * dt
-        fwd_scale = sigma_t * jnp.sqrt(dt)
-        fwd_log_prob = log_prob_kernel(x_new, fwd_mean, fwd_scale)
 
-        running_cost = fwd_log_prob - bwd_log_prob
-        stochastic_cost = 0.0
+        # Compute (running) Radon-Nikodym derivative components
+        running_cost = 0.5 * jnp.square(jnp.linalg.norm(model_output)) * dt
+        fwd_noise = (1 / (sigma_t * jnp.sqrt(dt))) * (
+            x_new - (x + sigma_t * dt * model_output)
+        )
+        stochastic_cost = (model_output * fwd_noise).sum() * jnp.sqrt(dt)
 
         next_state = (x, sigma_int, key_gen)
         per_step_output = (running_cost, stochastic_cost, x)
