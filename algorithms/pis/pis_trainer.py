@@ -24,7 +24,7 @@ def pis_trainer(cfg, target):
     dim = target.dim
     alg_cfg = cfg.algorithm
 
-    # Define initial and target density
+    # Define reference and target density
     normal_log_prob = lambda x, sigma: distrax.MultivariateNormalDiag(
         jnp.zeros(dim), jnp.ones(dim) * sigma
     ).log_prob(x)
@@ -35,7 +35,9 @@ def pis_trainer(cfg, target):
     key, key_gen = jax.random.split(key_gen)
     model_state = init_model(key, dim, alg_cfg)
 
-    loss = jax.jit(jax.grad(neg_elbo, 2, has_aux=True), static_argnums=(3, 4, 5, 6, 7, 8))
+    loss = jax.jit(
+        jax.grad(neg_elbo, 2, has_aux=True), static_argnums=(3, 4, 5, 6, 7, 8)
+    )
     rnd_short = partial(
         rnd,
         batch_size=cfg.eval_samples,
