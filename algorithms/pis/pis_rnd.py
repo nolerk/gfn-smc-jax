@@ -84,28 +84,44 @@ def per_sample_rnd(
             x_new = jax.lax.stop_gradient(x_new)
 
         key, key_gen = jax.random.split(key_gen)
-        noise = jnp.clip(jax.random.normal(key, shape=x_new.shape), -4, 4)
+        fwd_noise = jnp.clip(jax.random.normal(key, shape=x_new.shape), -4, 4)
 
-        x = shrink * x_new + noise * sigma_t * jnp.sqrt(shrink * dt)
+        x = shrink * x_new + fwd_noise * sigma_t * jnp.sqrt(shrink * dt)
 
         # Compute SDE components
         if use_lp:
             langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(x, step))
         else:
             langevin = jnp.zeros(x.shape[0])
-        model_output, _ = model_state.apply_fn(params, x, step * jnp.ones(1), langevin)
 
-        # Compute (running) Radon-Nikodym derivative components
-        
-        # running_cost = 0.5 * jnp.square(jnp.linalg.norm(model_output)) * dt
-        # fwd_noise = (1 / (sigma_t * jnp.sqrt(dt))) * (x_new - (x + sigma_t * dt * model_output))
-        # stochastic_cost = (model_output * fwd_noise).sum() * jnp.sqrt(dt)
-        
+        def u_fn(_x: jnp.ndarray) -> jnp.ndarray:
+            if use_lp:
+                local_langevin = jax.lax.stop_gradient(jax.grad(langevin_init)(_x, step))
+            else:
+                local_langevin = jnp.zeros(_x.shape[0])
+            u_out, _ = model_state.apply_fn(params, _x, step * jnp.ones(1), local_langevin)
+            return u_out
+
+        model_output = u_fn(x)
         mu_fwd = x + sigma_t * dt * model_output
         mu_bwd = shrink * x_new
-        mu_diff = mu_fwd - mu_bwd
-        running_cost = 0.5 * jnp.square(jnp.linalg.norm(mu_diff)) * dt
+        diag_scale = sigma_t * jnp.ones(dim, dtype=x.dtype)
+        noise_unscaled = x_new - mu_fwd
+
+        # --- mode-specific: recover noise, compute logdetV ---
+        key_aux, key_gen = jax.random.split(key_gen)
         fwd_noise = (1 / (sigma_t * jnp.sqrt(dt))) * (x_new - (x + sigma_t * dt * model_output))
+        logdetV = 0
+
+        # --- shared tail ---
+        fk_log_prob = -0.5 * (jnp.sum(fwd_noise**2) + dim * (jnp.log(2 * jnp.pi) + jnp.log(dt)) + 2 * logdetV)
+        bk_log_prob = jax.lax.cond(
+            step == num_steps,
+            lambda _: jnp.array(0.0),
+            lambda _: target_log_prob(x, mu_bwd, sigma_t * jnp.sqrt(shrink * dt)),
+            operand=None,
+        )
+        running_cost = fk_log_prob - bk_log_prob
         stochastic_cost = 0.0
 
         next_state = (x, sigma_int, key_gen)
