@@ -14,8 +14,8 @@ n_evals: 100  # Number of evaluations during training
 moving_average:  # Moving average over subsequent evaluations
   use_ma: True
   window_size: 5
-discrepancies: [sd, mmd]  # IPMs: Sinkhorn (Entropy-regularized Wasserstein Distance) and Maximum Mean Discrepancy
-compute_emc: True  # Entropic Mode Coverage
+discrepancies: [sd]  # IPMs: Sinkhorn (Entropy-regularized Wasserstein Distance) and Maximum Mean Discrepancy
+compute_emc: False  # Entropic Mode Coverage
 compute_forward_metrics: True
 use_logger: True  # Enable logging (wandb and/or comet_ml based on logger config)
 verbose: True  # Intermediate results are printed if True

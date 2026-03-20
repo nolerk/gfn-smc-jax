@@ -163,13 +163,6 @@ def outer_loop_ais(
     ln_z_final = jax.scipy.special.logsumexp(log_weights) - jnp.log(alg_cfg.batch_size)
     elbo = jnp.mean(log_weights)
 
-    # Effective sample size
-    ess = jnp.exp(
-        2 * jax.scipy.special.logsumexp(log_weights)
-        - jax.scipy.special.logsumexp(2 * log_weights)
-    )
-    ess_normalized = ess / alg_cfg.batch_size
-
     # Number of function evaluations
     nfe = 2 * alg_cfg.batch_size * (alg_cfg.num_temps - 1)
 
@@ -177,7 +170,6 @@ def outer_loop_ais(
 
     logger["stats/wallclock"] = [delta_time]
     logger["stats/nfe"] = [nfe]
-    logger["ESS/forward"] = [ess_normalized]
     logger["other/avg_acceptance_hmc"] = [sum(acceptance_hmc) / len(acceptance_hmc)]
     logger["other/avg_acceptance_rwm"] = [sum(acceptance_rwm) / len(acceptance_rwm)]
 

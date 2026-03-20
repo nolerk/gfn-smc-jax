@@ -4,8 +4,6 @@ from jax._src.scipy.special import logsumexp
 
 from eval import discrepancies
 from eval.utils import (
-    avg_stddiv_across_marginals,
-    compute_reverse_ess,
     moving_averages,
     save_samples,
 )
@@ -23,15 +21,8 @@ def get_eval_fn(cfg, target, target_samples):
         "Z/delta_reverse": [],
         "Z/delta_elbo": [],
         "Z/delta_eubo": [],
-        "ESS/forward": [],
-        "ESS/reverse": [],
-        "discrepancies/mmd": [],
         "discrepancies/sd": [],
-        "discrepancies/mmd_target": [],
         "discrepancies/sd_target": [],
-        "other/target_log_prob": [],
-        "other/delta_mean_marginal_std": [],
-        "other/EMC": [],
         "stats/step": [],
         "stats/wallclock": [],
         "stats/nfe": [],
@@ -51,21 +42,15 @@ def get_eval_fn(cfg, target, target_samples):
 
         logger["logZ/reverse"].append(ln_z)
         logger["KL/elbo"].append(elbo)
-        
+
         if target.log_Z is not None:
             Z_elbo = jnp.exp(elbo)
             logger["Z/delta_elbo"].append(jnp.abs(Z_elbo - Z_ground_truth))
-        logger["ESS/reverse"].append(compute_reverse_ess(log_ratio, cfg.eval_samples))
-        logger["other/delta_mean_marginal_std"].append(
-            jnp.abs(avg_stddiv_across_marginals(samples) - target.marginal_std)
-        )
-        logger["other/target_log_prob"].append(jnp.mean(target_log_prob))
 
         if cfg.compute_forward_metrics and (target_samples is not None):
             eubo = jnp.mean(fwd_log_ratio)
-            fwd_ln_z = -(jax.scipy.special.logsumexp(-fwd_log_ratio) - jnp.log(cfg.eval_samples))
-            fwd_ess = jnp.exp(
-                fwd_ln_z - (jax.scipy.special.logsumexp(fwd_log_ratio) - jnp.log(cfg.eval_samples))
+            fwd_ln_z = -(
+                jax.scipy.special.logsumexp(-fwd_log_ratio) - jnp.log(cfg.eval_samples)
             )
             if target.log_Z is not None:
                 Z_eubo = jnp.exp(eubo)
@@ -77,12 +62,8 @@ def get_eval_fn(cfg, target, target_samples):
                 logger["Z/delta_forward"].append(jnp.abs(Z_forward - Z_ground_truth))
             logger["logZ/forward"].append(fwd_ln_z)
             logger["KL/eubo"].append(eubo)
-            logger["ESS/forward"].append(fwd_ess)
 
         logger.update(target.visualise(samples=samples))
-
-        if cfg.compute_emc and cfg.target.has_entropy:
-            logger["other/EMC"].append(target.entropy(samples))
 
         for d in cfg.discrepancies:
             logger[f"discrepancies/{d}"].append(
@@ -115,12 +96,8 @@ def get_eval_fn(cfg, target, target_samples):
                     value = value[0]
                 if key in logger.keys():
                     logger[key].append(value)
-                    logger[f"model_selection/{key}_MAX"].append(max(logger[key]))
-                    logger[f"model_selection/{key}_MIN"].append(min(logger[key]))
                 else:
                     logger[key] = [value]
-                    logger[f"model_selection/{key}_MAX"] = [max(logger[key])]
-                    logger[f"model_selection/{key}_MIN"] = [min(logger[key])]
 
         if cfg.save_samples:
             save_samples(cfg, logger, samples)

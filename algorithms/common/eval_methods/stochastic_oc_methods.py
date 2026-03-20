@@ -5,8 +5,6 @@ import jax.numpy as jnp
 
 from eval import discrepancies
 from eval.utils import (
-    avg_stddiv_across_marginals,
-    compute_reverse_ess,
     moving_averages,
     save_samples,
 )
@@ -16,7 +14,9 @@ def get_eval_fn(rnd, target, target_xs, cfg):
     rnd_reverse = jax.jit(partial(rnd, prior_to_target=True))
 
     if cfg.compute_forward_metrics and target.can_sample:
-        rnd_forward = jax.jit(partial(rnd, prior_to_target=False, terminal_xs=target_xs))
+        rnd_forward = jax.jit(
+            partial(rnd, prior_to_target=False, terminal_xs=target_xs)
+        )
 
     logger = {
         "KL/elbo": [],
@@ -29,20 +29,12 @@ def get_eval_fn(rnd, target, target_xs, cfg):
         "Z/delta_reverse": [],
         "Z/delta_elbo": [],
         "Z/delta_eubo": [],
-        "ESS/forward": [],
-        "ESS/reverse": [],
-        "discrepancies/mmd": [],
+        "Z_var/reverse": [],
         "discrepancies/sd": [],
-        "discrepancies/mmd_target": [],
         "discrepancies/sd_target": [],
-        "other/target_log_prob": [],
-        "other/delta_mean_marginal_std": [],
-        "other/EMC": [],
         "stats/step": [],
         "stats/wallclock": [],
         "stats/nfe": [],
-        "log_var/log_var": [],
-        "log_var/traj_bal_ln_z": [],
     }
 
     def short_eval(model_state, key):
@@ -57,8 +49,11 @@ def get_eval_fn(rnd, target, target_xs, cfg):
 
         log_is_weights = -(running_costs + stochastic_costs + terminal_costs)
         ln_z = jax.scipy.special.logsumexp(log_is_weights) - jnp.log(cfg.eval_samples)
+
+        Z_var_reverse = jnp.var(jnp.exp(log_is_weights))
+        logger["Z_var/reverse"].append(Z_var_reverse)
+
         elbo = jnp.mean(log_is_weights)
-        log_var = jnp.var(running_costs + terminal_costs, ddof=0)
 
         if target.log_Z is not None:
             logger["logZ/delta_reverse"].append(jnp.abs(ln_z - target.log_Z))
@@ -68,16 +63,10 @@ def get_eval_fn(rnd, target, target_xs, cfg):
 
         logger["logZ/reverse"].append(ln_z)
         logger["KL/elbo"].append(elbo)
-        
+
         if target.log_Z is not None:
             Z_elbo = jnp.exp(elbo)
             logger["Z/delta_elbo"].append(jnp.abs(Z_elbo - Z_ground_truth))
-        logger["ESS/reverse"].append(compute_reverse_ess(log_is_weights, cfg.eval_samples))
-        logger["other/target_log_prob"].append(jnp.mean(target.log_prob(samples)))
-        logger["other/delta_mean_marginal_std"].append(
-            jnp.abs(avg_stddiv_across_marginals(samples) - target.marginal_std)
-        )
-        logger["log_var/log_var"].append(log_var)
 
         if cfg.compute_forward_metrics and target.can_sample:
             (
@@ -86,17 +75,16 @@ def get_eval_fn(rnd, target, target_xs, cfg):
                 fwd_stochastic_costs,
                 fwd_terminal_costs,
             ) = rnd_forward(jax.random.PRNGKey(0), model_state, *params)[:4]
-            fwd_log_is_weights = -(fwd_running_costs + fwd_stochastic_costs + fwd_terminal_costs)
-            fwd_ln_z = jax.scipy.special.logsumexp(fwd_log_is_weights) - jnp.log(cfg.eval_samples)
+            fwd_log_is_weights = -(
+                fwd_running_costs + fwd_stochastic_costs + fwd_terminal_costs
+            )
+            fwd_ln_z = jax.scipy.special.logsumexp(fwd_log_is_weights) - jnp.log(
+                cfg.eval_samples
+            )
             eubo = jnp.mean(fwd_log_is_weights)
             if target.log_Z is not None:
                 Z_eubo = jnp.exp(eubo)
                 logger["Z/delta_eubo"].append(jnp.abs(Z_eubo - Z_ground_truth))
-
-            fwd_ess = jnp.exp(
-                fwd_ln_z
-                - (jax.scipy.special.logsumexp(fwd_log_is_weights) - jnp.log(cfg.eval_samples))
-            )
 
             if target.log_Z is not None:
                 logger["logZ/delta_forward"].append(jnp.abs(fwd_ln_z - target.log_Z))
@@ -104,12 +92,8 @@ def get_eval_fn(rnd, target, target_xs, cfg):
                 logger["Z/delta_forward"].append(jnp.abs(Z_forward - Z_ground_truth))
             logger["logZ/forward"].append(fwd_ln_z)
             logger["KL/eubo"].append(eubo)
-            logger["ESS/forward"].append(fwd_ess)
 
         logger.update(target.visualise(samples=samples))
-
-        if cfg.compute_emc and cfg.target.has_entropy:
-            logger["other/EMC"].append(target.entropy(samples))
 
         for d in cfg.discrepancies:
             logger[f"discrepancies/{d}"].append(
@@ -142,12 +126,8 @@ def get_eval_fn(rnd, target, target_xs, cfg):
                     value = value[0]
                 if key in logger.keys():
                     logger[key].append(value)
-                    logger[f"model_selection/{key}_MAX"].append(max(logger[key]))
-                    logger[f"model_selection/{key}_MIN"].append(min(logger[key]))
                 else:
                     logger[key] = [value]
-                    logger[f"model_selection/{key}_MAX"] = [max(logger[key])]
-                    logger[f"model_selection/{key}_MIN"] = [min(logger[key])]
 
         if cfg.save_samples:
             save_samples(cfg, logger, samples)
