@@ -14,7 +14,9 @@ class OT:
         """
         Entropy regularized optimal transport cost (see https://ott-jax.readthedocs.io/en/latest/tutorials/point_clouds.html)
         """
-        geom = pointcloud.PointCloud(self.groundtruth, model_samples, epsilon=self.epsilon)
+        geom = pointcloud.PointCloud(
+            self.groundtruth, model_samples, epsilon=self.epsilon
+        )
         # Define a linear problem with that cost structure.
         ot_prob = linear_problem.LinearProblem(geom)
         # Create a Sinkhorn solver
@@ -36,6 +38,12 @@ class SD:
         self.groundtruth = gt_samples
         self.epsilon = epsilon
 
+
+class SD:
+    def __init__(self, gt_samples, epsilon=1e-3):
+        self.groundtruth = gt_samples
+        self.epsilon = epsilon
+
     def compute_SD(self, model_samples):
         """
         Entropy regularized debiased optimal transport (Sinkhorn divergence - SD) cost (see https://ott-jax.readthedocs.io/en/latest/tutorials/point_clouds.html)
@@ -47,6 +55,6 @@ class SD:
             geom,
             x=geom.x,
             y=geom.y,
-        )[1].divergence
+        ).divergence
 
         return sd
