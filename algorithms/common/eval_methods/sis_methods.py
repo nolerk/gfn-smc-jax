@@ -27,17 +27,17 @@ def get_eval_fn(cfg, target, target_samples):
     def eval_fn(samples, elbo, rev_lnz, eubo, fwd_lnz):
 
         if target.log_Z is not None:
-            logger["logZ/delta_reverse"].append(jnp.abs(rev_lnz - target.log_Z))
+            logger["logZ/delta_reverse"].append(rev_lnz - target.log_Z)
             Z_reverse = jnp.exp(rev_lnz)
             Z_ground_truth = jnp.exp(target.log_Z)
-            logger["Z/delta_reverse"].append(jnp.abs(Z_reverse - Z_ground_truth))
+            logger["Z/delta_reverse"].append(Z_reverse - Z_ground_truth)
 
         logger["logZ/reverse"].append(rev_lnz)
         logger["KL/elbo"].append(elbo)
 
         if target.log_Z is not None:
             Z_elbo = jnp.exp(elbo)
-            logger["Z/delta_elbo"].append(jnp.abs(Z_elbo - Z_ground_truth))
+            logger["Z/delta_elbo"].append(Z_elbo - Z_ground_truth)
 
         if (
             cfg.compute_forward_metrics
@@ -45,11 +45,11 @@ def get_eval_fn(cfg, target, target_samples):
             and (fwd_lnz is not None)
         ):
             if target.log_Z is not None:
-                logger["logZ/delta_forward"].append(jnp.abs(fwd_lnz - target.log_Z))
+                logger["logZ/delta_forward"].append(fwd_lnz - target.log_Z)
                 Z_forward = jnp.exp(fwd_lnz)
-                logger["Z/delta_forward"].append(jnp.abs(Z_forward - Z_ground_truth))
+                logger["Z/delta_forward"].append(Z_forward - Z_ground_truth)
                 Z_eubo = jnp.exp(eubo)
-                logger["Z/delta_eubo"].append(jnp.abs(Z_eubo - Z_ground_truth))
+                logger["Z/delta_eubo"].append(Z_eubo - Z_ground_truth)
             logger["logZ/forward"].append(fwd_lnz)
             logger["KL/eubo"].append(eubo)
 
