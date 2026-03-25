@@ -44,7 +44,9 @@ def uha_trainer(cfg, target):
         optax.adam(learning_rate=alg_cfg.step_size),
     )
 
-    model_state = train_state.TrainState.create(apply_fn=None, params=params, tx=optimizer)
+    model_state = train_state.TrainState.create(
+        apply_fn=None, params=params, tx=optimizer
+    )
 
     def prior_sampler(params, key, n_samples):
         samples = distrax.MultivariateNormalDiag(
@@ -92,7 +94,13 @@ def uha_trainer(cfg, target):
         friction = jax.nn.softplus(params["params"]["friction"])
         return friction if alg_cfg.learn_friction else jax.lax.stop_gradient(friction)
 
-    aux_tuple = (prior_sampler, prior_log_prob, get_betas, get_diff_coefficient, get_friction)
+    aux_tuple = (
+        prior_sampler,
+        prior_log_prob,
+        get_betas,
+        get_diff_coefficient,
+        get_friction,
+    )
 
     loss = jax.jit(jax.grad(neg_elbo, 2, has_aux=True), static_argnums=(3, 4, 5, 6, 7))
     rnd_short = partial(
@@ -136,4 +144,4 @@ def uha_trainer(cfg, target):
             print_results(step, logger, cfg)
 
             if cfg.use_logger:
-                log(extract_last_entry(logger))
+                log(extract_last_entry(logger), step=step)

@@ -45,7 +45,9 @@ def ula_trainer(cfg, target):
         optax.adam(learning_rate=alg_cfg.step_size),
     )
 
-    model_state = train_state.TrainState.create(apply_fn=None, params=params, tx=optimizer)
+    model_state = train_state.TrainState.create(
+        apply_fn=None, params=params, tx=optimizer
+    )
 
     def prior_sampler(params, key, n_samples):
         samples = distrax.MultivariateNormalDiag(
@@ -133,4 +135,4 @@ def ula_trainer(cfg, target):
             print_results(step, logger, cfg)
 
             if cfg.use_logger:
-                log(extract_last_entry(logger))
+                log(extract_last_entry(logger), step=step)

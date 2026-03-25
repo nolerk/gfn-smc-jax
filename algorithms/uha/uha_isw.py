@@ -3,6 +3,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as npdist
+from algorithms.common.types import Array
 
 
 def sample_kernel(rng_key, mean, scale):
@@ -26,7 +27,9 @@ def per_sample_rnd(
     stop_grad=False,
     prior_to_target=True,
 ):
-    prior_sampler, prior_log_prob, get_betas, get_diff_coefficient, get_friction = aux_tuple
+    prior_sampler, prior_log_prob, get_betas, get_diff_coefficient, get_friction = (
+        aux_tuple
+    )
     target_log_prob = target.log_prob
 
     def langevin_score_fn(x, beta, params, initial_log_prob, target_log_prob):
@@ -36,7 +39,9 @@ def per_sample_rnd(
     betas = get_betas(params)
 
     langevin_score = partial(
-        langevin_score_fn, initial_log_prob=prior_log_prob, target_log_prob=target_log_prob
+        langevin_score_fn,
+        initial_log_prob=prior_log_prob,
+        target_log_prob=target_log_prob,
     )
 
     def simulate_prior_to_target(state, per_step_input):
@@ -138,7 +143,9 @@ def per_sample_rnd(
         key, key_gen = jax.random.split(key_gen)
         init_rho = jax.random.normal(key, shape=(init_x.shape[0],))  # (dim,)
         aux = (init_x, init_rho, 0.0, key)
-        aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(0, num_steps))
+        aux, per_step_output = jax.lax.scan(
+            simulate_prior_to_target, aux, jnp.arange(0, num_steps)
+        )
         final_x, final_rho, log_ratio, _ = aux
         sample_terminal_cost = prior_log_prob(params, init_x) - target_log_prob(final_x)
         momentum_terminal_cost = log_prob_kernel(
@@ -177,6 +184,7 @@ def rnd(
     noise_schedule,
     stop_grad=False,
     prior_to_target=True,
+    terminal_xs: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(

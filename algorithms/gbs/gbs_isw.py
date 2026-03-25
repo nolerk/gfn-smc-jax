@@ -3,6 +3,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as npdist
+from algorithms.common.types import Array
 
 
 def sample_kernel(rng_key, mean, scale):
@@ -37,7 +38,9 @@ def per_sample_rnd(
         return beta * target_log_prob(x) + (1 - beta) * initial_log_prob(x)
 
     langevin_score = partial(
-        langevin_score_fn, initial_log_prob=prior_log_prob, target_log_prob=target_log_prob
+        langevin_score_fn,
+        initial_log_prob=prior_log_prob,
+        target_log_prob=target_log_prob,
     )
     dt = 1.0 / num_steps
 
@@ -58,7 +61,9 @@ def per_sample_rnd(
         scale = sigma_t * jnp.sqrt(2 * dt)
         fwd_langevin = jax.grad(langevin_score)(x, step)
         fwd_langevin_detached = jax.lax.stop_gradient(fwd_langevin)
-        fwd_model = fwd_state.apply_fn(fwd_params, x, step * jnp.ones(1), fwd_langevin_detached)
+        fwd_model = fwd_state.apply_fn(
+            fwd_params, x, step * jnp.ones(1), fwd_langevin_detached
+        )
 
         # Euler-Maruyama integration of the SDE
         fwd_mean = x + sigma_t**2 * fwd_model * dt  # todo check the coefficients
@@ -120,7 +125,9 @@ def per_sample_rnd(
 
         fwd_langevin = jax.grad(langevin_score)(x_new, step)
         fwd_langevin_detached = jax.lax.stop_gradient(fwd_langevin)
-        fwd_model = fwd_state.apply_fn(fwd_params, x_new, step * jnp.ones(1), fwd_langevin_detached)
+        fwd_model = fwd_state.apply_fn(
+            fwd_params, x_new, step * jnp.ones(1), fwd_langevin_detached
+        )
         fwd_mean = x_new + sigma_t**2 * fwd_model * dt
 
         fwd_log_prob = log_prob_kernel(x, fwd_mean, scale)
@@ -137,7 +144,9 @@ def per_sample_rnd(
     if prior_to_target:
         init_x = jnp.squeeze(prior_sampler(seed=key, sample_shape=(1,)))
         aux = (init_x, 0.0, key)
-        aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(0, num_steps))
+        aux, per_step_output = jax.lax.scan(
+            simulate_prior_to_target, aux, jnp.arange(0, num_steps)
+        )
         final_x, log_ratio, _ = aux
         terminal_cost = prior_log_prob(init_x) - target_log_prob(final_x)
     else:
@@ -167,10 +176,12 @@ def rnd(
     noise_schedule,
     stop_grad=False,
     prior_to_target=True,
+    terminal_xs: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
-        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None, None)
+        per_sample_rnd,
+        in_axes=(0, None, None, None, None, None, None, None, None, None),
     )(
         seeds,
         model_state,

@@ -11,6 +11,7 @@ import distrax
 import jax
 import jax.numpy as jnp
 import optax
+
 # import wandb  # Replaced by unified logger
 from flax.training import train_state
 
@@ -100,7 +101,9 @@ def mcd_trainer(cfg, target):
         optax.adam(learning_rate=alg_cfg.step_size),
     )
 
-    model_state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
+    model_state = train_state.TrainState.create(
+        apply_fn=model.apply, params=params, tx=optimizer
+    )
 
     loss = jax.jit(jax.grad(neg_elbo, 2, has_aux=True), static_argnums=(3, 4, 5, 6, 7))
     rnd_short = partial(
@@ -144,4 +147,4 @@ def mcd_trainer(cfg, target):
             print_results(step, logger, cfg)
 
             if cfg.use_logger:
-                log(extract_last_entry(logger))
+                log(extract_last_entry(logger), step=step)

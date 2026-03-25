@@ -26,7 +26,9 @@ def gbs_trainer(cfg, target):
     alg_cfg = cfg.algorithm
 
     # Define prior and target density
-    prior = distrax.MultivariateNormalDiag(jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std)
+    prior = distrax.MultivariateNormalDiag(
+        jnp.zeros(dim), jnp.ones(dim) * alg_cfg.init_std
+    )
     aux_tuple = (prior.sample, prior.log_prob)
 
     target_samples = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
@@ -61,7 +63,9 @@ def gbs_trainer(cfg, target):
         apply_fn=bwd_model.apply, params=bwd_params, tx=optimizer
     )
 
-    loss = jax.jit(jax.grad(neg_elbo, (2, 3), has_aux=True), static_argnums=(4, 5, 6, 7, 8))
+    loss = jax.jit(
+        jax.grad(neg_elbo, (2, 3), has_aux=True), static_argnums=(4, 5, 6, 7, 8)
+    )
     rnd_short = partial(
         rnd,
         batch_size=cfg.eval_samples,
@@ -108,4 +112,4 @@ def gbs_trainer(cfg, target):
             print_results(step, logger, cfg)
 
             if cfg.use_logger:
-                log(extract_last_entry(logger))
+                log(extract_last_entry(logger), step=step)
