@@ -127,6 +127,9 @@ def get_train_fn(alg_name):
         )
 
         return gfn_subtb_smc_nobuffer_trainer
+    elif alg_name == "pcula":
+        from algorithms.pcula.pcula_trainer import pcula_trainer
 
+        return pcula_trainer
     else:
         raise ValueError(f"No algorithm named {alg_name}.")

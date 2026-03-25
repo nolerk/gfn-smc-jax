@@ -19,6 +19,7 @@ pcula:
   max_diffusion: 1.
   init_std: 1.
   step_size: 5e-4
+  penalty_strength: 1.0
 
 gfn_tb: # Trajectory Balance
   reference_process: ou_dds  # pinned_brownian, ou, or ou_dds

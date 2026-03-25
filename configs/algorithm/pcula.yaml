@@ -1,0 +1,25 @@
+name: pcula
+step_size: ${target.pcula.step_size}
+batch_size: ${target.all.batch_size}
+iters: 40000
+init_std: ${target.pcula.init_std}
+num_steps: 128
+grad_clip: 1.
+max_diffusion: ${target.pcula.max_diffusion}
+learn_prior: False
+learn_betas: False
+learn_diffusion_coefficient: False
+penalty_strength: ${target.pcula.penalty_strength}
+
+defaults:
+  - model: pisgrad_net
+  - noise_schedule: cosine
+
+model:
+  bias_init: 0.1
+  weight_init: 1e-8
+  use_lp: ${target.all.use_lp}
+  num_hid: ${target.all.num_hid}
+
+noise_schedule:
+  reverse: False

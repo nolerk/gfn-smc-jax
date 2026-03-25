@@ -4,11 +4,11 @@ from typing import List
 import chex
 import jax
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 import jax.random as random
 import numpy as np
 from functools import partial
 import distrax
-import pandas as pd
 from matplotlib import pyplot as plt
 from scipy.stats import wishart
 
@@ -67,7 +67,7 @@ class Cube(Target):
             components_distribution=component_dist,
         )
 
-        log_Z = self.compute_true_logZ()
+        log_Z = self._compute_true_logZ()
         super().__init__(dim, log_Z, can_sample)
 
     def is_inside(self, x: chex.Array) -> bool:
@@ -88,25 +88,81 @@ class Cube(Target):
     def sample(
         self, seed: chex.PRNGKey, sample_shape: chex.Shape, constrained: bool = False
     ) -> chex.Array:
-        # constrained = True meaning it is defined in [a,b]^d
-        if constrained:
-            num_samples = int(np.prod(sample_shape))
-            samples = []
-            num_accepted = 0
-            while num_accepted < num_samples:
-                seed, subkey = random.split(seed)
-                y = self.mixture_distribution.sample(
-                    seed=subkey, sample_shape=(num_samples,)
-                )
-                mask = self.is_inside(y)
-                accepted = y[mask]
-                samples.append(accepted)
-                num_accepted += int(np.prod(accepted.shape[:-1]))
-            samples = jnp.concatenate(samples, axis=0)
-            return samples[:num_samples].reshape(sample_shape + (self.dim,))
-        return self.cube_to_rd(self.sample(seed, sample_shape, constrained=True))
+        # constrained = True - defined in [a,b]^d
+        # constrained = False - defined in R^d via change of variables
 
-    def compute_true_logZ(
+        if not constrained:
+            samples = self.sample(seed, sample_shape, constrained=True)
+            return self.cube_to_rd(samples)
+
+        num_samples = sample_shape[0]
+        dim = self.dim
+
+        def cond_fn(state):
+            _, num_filled, *_ = state
+            return num_filled < num_samples
+
+        def body_fn(state):
+            seed, num_filled, buffer = state
+            seed, subkey = random.split(seed)
+
+            N = buffer.shape[0]
+
+            proposal = self.mixture_distribution.sample(seed=subkey, sample_shape=(N,))
+
+            mask = self.is_inside(proposal)
+            mask_int = mask.astype(jnp.int32)
+
+            positions = jnp.cumsum(mask_int) - 1
+            num_accept = jnp.sum(mask_int)
+
+            remaining = N - num_filled
+            num_take = jnp.minimum(num_accept, remaining)
+
+            valid = mask & (positions < num_take)
+
+            # replace invalid entries with dummy (won’t be used)
+            safe_positions = jnp.where(valid, positions, 0)
+            safe_values = jnp.where(valid[:, None], proposal, 0.0)
+
+            target_idx = num_filled + safe_positions
+
+            buffer = buffer.at[target_idx].add(safe_values)
+
+            num_filled = num_filled + num_take
+
+            return seed, num_filled, buffer
+
+        # init buffer (static shape!)
+        buffer = jnp.zeros((num_samples, dim))
+
+        init_state = (seed, 0, buffer)
+
+        _, _, buffer = jax.lax.while_loop(cond_fn, body_fn, init_state)
+
+        return buffer.reshape(sample_shape + (dim,))
+
+    def log_prob(self, x: chex.Array, constrained: bool = False) -> chex.Array:
+        # constrained = True - defined in [a,b]^d
+        # constrained = False - defined in R^d via change of variables
+        if not constrained:
+            log_jacobian = jnp.sum(
+                jax.nn.log_sigmoid(x) + jax.nn.log_sigmoid(-x), axis=-1
+            ) + x.shape[-1] * jnp.log(self.max_coord - self.min_coord)
+            return self.log_prob(self.rd_to_cube(x), constrained=True) + log_jacobian
+
+        batched = x.ndim == 2
+        if not batched:
+            x = x[None]
+
+        log_prob = self.mixture_distribution.log_prob(x)
+        # log_prob = jnp.where(self.is_inside(x), log_prob, -jnp.inf)
+
+        if not batched:
+            log_prob = jnp.squeeze(log_prob, axis=0)
+        return log_prob
+
+    def _compute_true_logZ(
         self, num_samples: int = 100000, seed: chex.PRNGKey = None
     ) -> float:
         """
@@ -133,35 +189,13 @@ class Cube(Target):
         # Since log_prob can return -inf for out-of-domain, mask them out
         mask = jnp.isfinite(log_probs)
         valid_log_probs = log_probs[mask]
-        # Use logsumexp for numerical stability
-        from scipy.special import logsumexp
 
-        log_volume = self.dim * np.log(float(self.max_coord - self.min_coord))
+        log_volume = self.dim * jnp.log(float(self.max_coord - self.min_coord))
         # Estimate integral
         log_integral = (
-            logsumexp(np.array(valid_log_probs))
-            - np.log(valid_log_probs.shape[0])
-            + log_volume
+            logsumexp(valid_log_probs) - jnp.log(valid_log_probs.shape[0]) + log_volume
         )
         return float(log_integral)
-
-    def log_prob(self, x: chex.Array, constrained: bool = False) -> chex.Array:
-        # constrained = True meaning it is defined in [a,b]^d
-        if constrained:
-            batched = x.ndim == 2
-            if not batched:
-                x = x[None]
-
-            log_prob = self.mixture_distribution.log_prob(x)
-            log_prob = jnp.where(self.is_inside(x), log_prob, -jnp.inf)
-
-            if not batched:
-                log_prob = jnp.squeeze(log_prob, axis=0)
-            return log_prob
-        log_jacobian = jnp.sum(
-            jax.nn.log_sigmoid(x) + jax.nn.log_sigmoid(-x), axis=-1
-        ) + x.shape[-1] * jnp.log(self.max_coord - self.min_coord)
-        return self.log_prob(self.rd_to_cube(x), constrained=True) + log_jacobian
 
     def visualise(
         self,
@@ -170,10 +204,10 @@ class Cube(Target):
         show=False,
         clip=False,
         constrained=True,
+        map_samples=True,
     ) -> None:
-        # passed samples by default are from R^d to not change visualization code for baselines
+        # samples are mapped to cube if constrained=True and map_samples=True
         plt.close()
-        boarder = [self.min_coord - 1, self.max_coord + 1]
         if constrained:
             boarder = [self.min_coord - 1, self.max_coord + 1]
         else:
@@ -197,7 +231,7 @@ class Cube(Target):
             pdf_values = jnp.reshape(pdf_values, x.shape)
             ax.contourf(x, y, pdf_values, levels=20, cmap="viridis")
             if samples is not None:
-                if constrained:
+                if constrained and map_samples:
                     samples = self.rd_to_cube(samples)
                 plt.scatter(
                     samples[:300, 0], samples[:300, 1], c="r", alpha=0.5, marker="x"
@@ -210,7 +244,7 @@ class Cube(Target):
                     (self.min_coord, self.min_coord),
                     self.max_coord - self.min_coord,
                     self.max_coord - self.min_coord,
-                    linewidth=2,
+                    linewidth=1,
                     edgecolor="black",
                     facecolor="none",
                 )
@@ -236,5 +270,11 @@ if __name__ == "__main__":
     key = jax.random.PRNGKey(45)
     cube = Cube(dim=2, num_components=10, min_coord=0.0, max_coord=1.0, scale=0.001)
     print(jnp.exp(cube.log_Z))
-    samples = cube.sample(key, (100,))
-    cube.visualise(samples, show=True, constrained=True)
+    # samples = cube.sample(key, (300,), constrained=True)
+
+    @jax.jit
+    def sample():
+        return cube.sample(key, (300,), constrained=True)
+
+    samples = sample()
+    cube.visualise(samples, show=True, constrained=True, map_samples=False)
