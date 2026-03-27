@@ -7,6 +7,9 @@ import chex
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import jax
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
 
 def plot_contours_2D(
@@ -60,3 +63,89 @@ def plot_marginal_pair(
         alpha=alpha,
         marker=marker,
     )
+
+
+def visualise_trajectories(
+    trajectories,
+    target,
+    dims=(0, 1),
+    device="cpu",
+    alpha=0.8,
+    prefix="",
+    show=False,
+):
+    fig = plt.figure(figsize=(6, 6))
+    ax = fig.add_subplot()
+
+    samples = trajectories[:, -1]
+    samples = samples[:, dims]
+    min_bounds = samples.min(axis=0) - 1.5
+    max_bounds = samples.max(axis=0) + 1.5
+
+    batch_size = trajectories.shape[0]
+
+    cmap = plt.get_cmap("viridis")
+    colors = cmap(jnp.linspace(0, 1, batch_size))
+
+    marker_size = 50
+
+    x = jnp.linspace(min_bounds[0], max_bounds[0], 50)
+    y = jnp.linspace(min_bounds[1], max_bounds[1], 50)
+
+    if trajectories.shape[-1] == 2:
+        X, Y = jnp.meshgrid(x, y, indexing="xy")
+        grid = jnp.stack([X.ravel(), Y.ravel()], axis=1)
+        grid = jax.device_put(grid, device)
+        pdf = jnp.exp(target.log_prob(grid)).reshape(X.shape)
+        pdf = jax.device_put(pdf, jax.devices("cpu")[0])
+        levels = jnp.linspace(pdf.min(), pdf.max(), 20)
+        ax.contourf(X, Y, pdf, levels=levels, cmap="viridis", alpha=0.5)
+
+    # 3. Loop through and plot each trajectory
+    for i in range(batch_size):
+        color = colors[i]
+
+        # 4. Slice the valid part of the trajectory
+        valid_traj = trajectories[i]
+
+        # 5. Plot the trajectory line
+        ax.plot(
+            valid_traj[:, dims[0]],
+            valid_traj[:, dims[1]],
+            color=color,
+            alpha=alpha,
+        )
+
+        # 6. Mark the start and end points
+        ax.scatter(
+            valid_traj[0, dims[0]],
+            valid_traj[0, dims[1]],
+            color=color,
+            marker="o",
+            s=marker_size,
+            edgecolors="black",
+            zorder=3,
+        )
+        ax.scatter(
+            valid_traj[-1, dims[0]],
+            valid_traj[-1, dims[1]],
+            color=color,
+            marker="X",
+            s=marker_size,
+            edgecolors="black",
+            zorder=3,
+        )
+
+    ax.set_xlabel(f"x{dims[0]+1}")
+    ax.set_ylabel(f"x{dims[1]+1}")
+    ax.grid(True, linestyle="--", alpha=0.6)
+    ax.set_xlim((x.min(), x.max()))
+    ax.set_ylim((y.min(), y.max()))
+    ax.set_aspect("equal", adjustable="box")
+
+    wb = {f"figures/{prefix + '_' if prefix else ''}vis": [fig]}
+    if show:
+        plt.show()
+    else:
+        plt.close()
+    return wb

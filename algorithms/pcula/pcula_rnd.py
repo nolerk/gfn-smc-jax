@@ -17,7 +17,7 @@ def log_prob_kernel(x, mean, scale):
 
 
 def per_sample_rnd(
-    seed,
+    key,
     model_state,
     params,
     aux_tuple,
@@ -67,10 +67,7 @@ def per_sample_rnd(
 
         # Compute SDE components
         sigma_t = sigmas(step) * get_diff_coefficient(params)
-
-        # TODO: Add this later maybe
         beta_t = betas(step)
-        # beta_t = jnp.array(1.0)
         scale = sigma_t * jnp.sqrt(dt)
         langevin = jax.grad(langevin_score)(x, beta_t, params)
 
@@ -91,16 +88,15 @@ def per_sample_rnd(
 
         bwd_mean = (
             x_new
-            + sigma_t**2 * (model_output_new - langevin_new + penalty_fn(x_new)) * dt
+            + sigma_t**2 * (langevin_new - model_output_new - penalty_fn(x_new)) * dt
         )
 
         fwd_log_prob = log_prob_kernel(x_new, fwd_mean, scale)
         bwd_log_prob = log_prob_kernel(x, bwd_mean, scale)
 
-        key, key_gen = jax.random.split(key_gen)
         log_w += bwd_log_prob - fwd_log_prob
         next_state = (x_new, log_w, key_gen)
-        per_step_output = (x_new,)
+        per_step_output = (x,)
         return next_state, per_step_output
 
     def simulate_target_to_prior(state, per_step_input):
@@ -117,20 +113,16 @@ def per_sample_rnd(
 
         # Compute SDE components
         sigma_t = sigmas(next_step) * get_diff_coefficient(params)
-        # TODO: Add this later maybe
         beta_t = betas(next_step)
-        # beta_t = jnp.array(1.0)
-
         scale = sigma_t * jnp.sqrt(2 * dt)
         langevin = jax.grad(langevin_score)(x, beta_t, params)
         langevin_detached = jax.lax.stop_gradient(langevin)
         model_output, _ = model_state.apply_fn(
             params, x, next_step * jnp.ones(1), langevin_detached
         )
-        key, key_gen = jax.random.split(key_gen)
 
         # Euler-Maruyama integration of the SDE
-        bwd_mean = x + sigma_t**2 * (model_output - langevin + penalty_fn(x)) * dt
+        bwd_mean = x + sigma_t**2 * (langevin - model_output - penalty_fn(x)) * dt
 
         key, key_gen = jax.random.split(key_gen)
         x_new = sample_kernel(key, bwd_mean, scale)
@@ -144,14 +136,11 @@ def per_sample_rnd(
         fwd_log_prob = log_prob_kernel(x, fwd_mean, scale)
         bwd_log_prob = log_prob_kernel(x_new, bwd_mean, scale)
 
-        key, key_gen = jax.random.split(key_gen)
         log_w += bwd_log_prob - fwd_log_prob
         next_state = (x_new, log_w, key_gen)
         per_step_output = (x_new,)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(seed)
-    key, key_gen = jax.random.split(key_gen)
     if prior_to_target:
         init_x = jnp.squeeze(prior_sampler(params, key, 1))
         aux = (init_x, 0.0, key)
@@ -159,20 +148,19 @@ def per_sample_rnd(
             simulate_prior_to_target, aux, jnp.arange(0, num_steps)
         )
         final_x, log_ratio, _ = aux
-        terminal_cost = prior_log_prob(params, init_x) - target_log_prob(final_x)
     else:
-        init_x = jnp.squeeze(target.sample(key, (1,)))
-        aux = (init_x, 0.0, key)
+        final_x = jnp.squeeze(target.sample(key, (1,)))
+        aux = (final_x, 0.0, key)
         aux, per_step_output = jax.lax.scan(
             simulate_target_to_prior, aux, jnp.arange(0, num_steps)[::-1]
         )
-        final_x, log_ratio, _ = aux
-        terminal_cost = prior_log_prob(params, final_x) - target_log_prob(init_x)
+        init_x, log_ratio, _ = aux
 
     running_cost = -log_ratio
-    x_t = per_step_output
+    terminal_cost = prior_log_prob(params, init_x) - target_log_prob(final_x)
+    trajectory = per_step_output[0]
     stochastic_costs = jnp.zeros_like(running_cost)
-    return final_x, running_cost, stochastic_costs, terminal_cost, x_t
+    return final_x, running_cost, stochastic_costs, terminal_cost, trajectory
 
 
 def rnd(
@@ -189,7 +177,13 @@ def rnd(
     terminal_xs: Array | None = None,
 ):
     seeds = jax.random.split(key, num=batch_size)
-    x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
+    (
+        terminal_xs,
+        running_costs,
+        stochastic_costs,
+        terminal_costs,
+        trajectories,
+    ) = jax.vmap(
         per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None)
     )(
         seeds,
@@ -203,7 +197,11 @@ def rnd(
         prior_to_target,
     )
 
-    return x_0, running_costs, stochastic_costs, terminal_costs
+    if not prior_to_target:
+        trajectories = trajectories[:, ::-1]
+    trajectories = jnp.concatenate([trajectories, terminal_xs[:, None]], axis=1)
+
+    return terminal_xs, running_costs, stochastic_costs, terminal_costs, trajectories
 
 
 def neg_elbo(
@@ -228,6 +226,6 @@ def neg_elbo(
         noise_schedule,
         stop_grad,
     )
-    samples, running_costs, stochastic_costs, terminal_costs = aux
+    samples, running_costs, stochastic_costs, terminal_costs, _ = aux
     neg_elbo = running_costs + terminal_costs
     return jnp.mean(neg_elbo), (neg_elbo, samples)

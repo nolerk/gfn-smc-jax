@@ -8,6 +8,7 @@ from eval.utils import (
     moving_averages,
     save_samples,
 )
+from utils.plot_utils import visualise_trajectories
 
 
 def get_eval_fn(rnd, target, target_xs, cfg):
@@ -43,9 +44,20 @@ def get_eval_fn(rnd, target, target_xs, cfg):
             params = (model_state1.params, model_state2.params)
         else:
             params = (model_state.params,)
-        samples, running_costs, stochastic_costs, terminal_costs = rnd_reverse(
+        samples, running_costs, stochastic_costs, terminal_costs, *aux = rnd_reverse(
             key, model_state, *params
-        )[:4]
+        )
+        trajectories = aux[0] if len(aux) == 1 else None
+        if trajectories is not None:
+            logger.update(
+                visualise_trajectories(
+                    trajectories[:10],
+                    target,
+                    dims=(0, 1),
+                    device=samples.device,
+                    prefix="trajectories_fwd",
+                )
+            )
 
         log_is_weights = -(running_costs + stochastic_costs + terminal_costs)
         ln_z = jax.scipy.special.logsumexp(log_is_weights) - jnp.log(cfg.eval_samples)
@@ -74,7 +86,19 @@ def get_eval_fn(rnd, target, target_xs, cfg):
                 fwd_running_costs,
                 fwd_stochastic_costs,
                 fwd_terminal_costs,
-            ) = rnd_forward(jax.random.PRNGKey(0), model_state, *params)[:4]
+                *fwd_aux,
+            ) = rnd_forward(jax.random.PRNGKey(0), model_state, *params)
+            fwd_trajectories = fwd_aux[0] if len(fwd_aux) == 1 else None
+            if fwd_trajectories is not None:
+                logger.update(
+                    visualise_trajectories(
+                        fwd_trajectories[:10],
+                        target,
+                        dims=(0, 1),
+                        device=samples.device,
+                        prefix="trajectories_bwd",
+                    )
+                )
             fwd_log_is_weights = -(
                 fwd_running_costs + fwd_stochastic_costs + fwd_terminal_costs
             )

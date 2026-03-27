@@ -14,6 +14,7 @@ from scipy.stats import wishart
 
 from targets.base_target import Target
 from utils.path_utils import project_path
+from algorithms.common.bounded import rejection_sample_domain
 
 
 class Cube(Target):
@@ -90,57 +91,13 @@ class Cube(Target):
     ) -> chex.Array:
         # constrained = True - defined in [a,b]^d
         # constrained = False - defined in R^d via change of variables
-
         if not constrained:
             samples = self.sample(seed, sample_shape, constrained=True)
             return self.cube_to_rd(samples)
 
-        num_samples = sample_shape[0]
-        dim = self.dim
-
-        def cond_fn(state):
-            _, num_filled, *_ = state
-            return num_filled < num_samples
-
-        def body_fn(state):
-            seed, num_filled, buffer = state
-            seed, subkey = random.split(seed)
-
-            N = buffer.shape[0]
-
-            proposal = self.mixture_distribution.sample(seed=subkey, sample_shape=(N,))
-
-            mask = self.is_inside(proposal)
-            mask_int = mask.astype(jnp.int32)
-
-            positions = jnp.cumsum(mask_int) - 1
-            num_accept = jnp.sum(mask_int)
-
-            remaining = N - num_filled
-            num_take = jnp.minimum(num_accept, remaining)
-
-            valid = mask & (positions < num_take)
-
-            # replace invalid entries with dummy (won’t be used)
-            safe_positions = jnp.where(valid, positions, 0)
-            safe_values = jnp.where(valid[:, None], proposal, 0.0)
-
-            target_idx = num_filled + safe_positions
-
-            buffer = buffer.at[target_idx].add(safe_values)
-
-            num_filled = num_filled + num_take
-
-            return seed, num_filled, buffer
-
-        # init buffer (static shape!)
-        buffer = jnp.zeros((num_samples, dim))
-
-        init_state = (seed, 0, buffer)
-
-        _, _, buffer = jax.lax.while_loop(cond_fn, body_fn, init_state)
-
-        return buffer.reshape(sample_shape + (dim,))
+        return rejection_sample_domain(
+            seed, sample_shape, self.mixture_distribution, self.is_inside, self.dim
+        )
 
     def log_prob(self, x: chex.Array, constrained: bool = False) -> chex.Array:
         # constrained = True - defined in [a,b]^d

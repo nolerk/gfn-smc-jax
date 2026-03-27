@@ -20,6 +20,7 @@ from eval.utils import extract_last_entry
 from utils.helper import inverse_softplus
 from utils.logger import log
 from utils.print_utils import print_results
+from algorithms.common.bounded import rejection_sample_domain
 
 
 def pcula_trainer(cfg, target):
@@ -59,10 +60,14 @@ def pcula_trainer(cfg, target):
     params["params"] = {**params["params"], **additional_params}
 
     def prior_sampler(params, key, n_samples):
-        samples = distrax.MultivariateNormalDiag(
+        dist = distrax.MultivariateNormalDiag(
             params["params"]["prior_mean"],
             jnp.ones(dim) * jax.nn.softplus(params["params"]["prior_std"]),
-        ).sample(seed=key, sample_shape=(n_samples,))
+        )
+        samples = dist.sample(seed=key, sample_shape=(n_samples,))
+        # samples = rejection_sample_domain(
+        #     key, (n_samples,), dist, target.is_inside, target.dim
+        # )
         return samples if alg_cfg.learn_prior else jax.lax.stop_gradient(samples)
 
     if alg_cfg.learn_prior:
