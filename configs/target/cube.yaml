@@ -29,6 +29,11 @@ gfn_tb: # Trajectory Balance
   logZ_step_size: 1e-1
   init_logZ: 0.
 
+gfn_tb_beta: # Trajectory Balance
+  step_size: 1e-3
+  logZ_step_size: 1e-1
+  init_logZ: 0.
+
 all: # Parameters that are shared between all algorithms
   batch_size: 2000
   iters: 20000

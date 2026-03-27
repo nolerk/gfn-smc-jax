@@ -131,5 +131,9 @@ def get_train_fn(alg_name):
         from algorithms.pcula.pcula_trainer import pcula_trainer
 
         return pcula_trainer
+    elif alg_name == "gfn_tb_beta":
+        from algorithms.gfn_tb_beta.gfn_tb_beta_trainer import gfn_tb_beta_trainer
+
+        return gfn_tb_beta_trainer
     else:
         raise ValueError(f"No algorithm named {alg_name}.")

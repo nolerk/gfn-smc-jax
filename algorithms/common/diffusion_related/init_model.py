@@ -5,6 +5,7 @@ from flax.training.train_state import TrainState
 from flax.traverse_util import path_aware_map
 
 from algorithms.common.models.pisgrad_net import PISGRADNet
+from algorithms.common.models.pisgrad_net_bounded import PISGRADNetBounded
 
 
 def pisgrad_net_label_map(path, _):
@@ -22,7 +23,7 @@ def pisgrad_net_label_map(path, _):
         return "network_optim"
 
 
-def init_model(key, dim, alg_cfg) -> TrainState:
+def init_model(key, dim, alg_cfg, bounded=False) -> TrainState:
     def build_lr_schedule(base_lr):
         sched_cfg = getattr(alg_cfg, "lr_schedule", None)
         if sched_cfg is None:
@@ -50,21 +51,41 @@ def init_model(key, dim, alg_cfg) -> TrainState:
             case "cosine":
                 decay_steps = max(alg_cfg.iters, 1)
                 return optax.cosine_decay_schedule(
-                    init_value=base_lr, decay_steps=decay_steps, alpha=sched_cfg.end_factor
+                    init_value=base_lr,
+                    decay_steps=decay_steps,
+                    alpha=sched_cfg.end_factor,
                 )
             case _:
                 raise ValueError(f"Invalid learning rate scheduler type: {sched_type}")
 
-    # Define the model
-    model = PISGRADNet(**alg_cfg.model)
+    Model = PISGRADNet if not bounded else PISGRADNetBounded
+    model = Model(**alg_cfg.model)
     # model = LangevinNetwork(**alg_cfg.model)
-    key, key_gen = jax.random.split(key)
-    params = model.init(
-        key,
-        jnp.ones([alg_cfg.batch_size, dim]),
-        jnp.ones([alg_cfg.batch_size, 1]),
-        jnp.ones([alg_cfg.batch_size, dim]),
-    )
+    if not bounded:
+        key, key_gen = jax.random.split(key)
+        params = model.init(
+            key_gen,
+            jnp.ones([alg_cfg.batch_size, dim]),
+            jnp.ones([alg_cfg.batch_size, 1]),
+            jnp.ones([alg_cfg.batch_size, dim]),
+        )
+    else:
+        key, key_gen = jax.random.split(key)
+        params = model.init(
+            key_gen,
+            jnp.ones([alg_cfg.batch_size, dim]),
+            jnp.ones([alg_cfg.batch_size, 1]),
+            jnp.ones([alg_cfg.batch_size, dim]),
+            is_fwd=True,
+        )
+        key, key_gen = jax.random.split(key)
+        params_bwd = model.init(
+            key_gen,
+            jnp.ones([alg_cfg.batch_size, dim]),
+            jnp.ones([alg_cfg.batch_size, 1]),
+            is_fwd=False,
+        )
+        params["params"] = {**params["params"], **params_bwd["params"]}
 
     if "gfn" not in alg_cfg.name:
         optimizer = optax.chain(
@@ -78,7 +99,9 @@ def init_model(key, dim, alg_cfg) -> TrainState:
         )
     else:  # "gfn" in alg_cfg.name
         optimizers_map = {
-            "network_optim": optax.adam(learning_rate=build_lr_schedule(alg_cfg.step_size))
+            "network_optim": optax.adam(
+                learning_rate=build_lr_schedule(alg_cfg.step_size)
+            )
         }
         if "gfn_subtb" in alg_cfg.name:
             optimizers_map["logflow_optim"] = optax.adam(
@@ -90,7 +113,9 @@ def init_model(key, dim, alg_cfg) -> TrainState:
                     learning_rate=build_lr_schedule(alg_cfg.beta_step_size)
                 )
 
-        if not ("gfn_tb" in alg_cfg.name and alg_cfg.loss_type == "lv"):  # for lv, logZ is not used
+        if not (
+            "gfn_tb" in alg_cfg.name and alg_cfg.loss_type == "lv"
+        ):  # for lv, logZ is not used
             params["params"]["logZ"] = jnp.array((alg_cfg.init_logZ,))
             optimizers_map["logZ_optim"] = optax.adam(
                 learning_rate=build_lr_schedule(alg_cfg.logZ_step_size)
