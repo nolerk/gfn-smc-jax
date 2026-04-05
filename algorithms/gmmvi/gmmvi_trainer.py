@@ -37,12 +37,14 @@ def gmmvi_trainer(cfg, target):
             logger["stats/step"].append(step)
             logger["stats/wallclock"].append(timer)
             logger["stats/num_samples"] = [state.sample_db_state.num_samples_written]
-            logger["stats/num_components"] = [state.model_state.gmm_state.num_components]
+            logger["stats/num_components"] = [
+                state.model_state.gmm_state.num_components
+            ]
 
             print_results(step, logger, cfg)
 
             if cfg.use_logger:
-                log(extract_last_entry(logger))
+                log(extract_last_entry(logger), step=step)
 
             print(
                 f"{step}/{cfg.algorithm.iters}: "

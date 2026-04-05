@@ -2,12 +2,17 @@ from time import time
 
 import jax
 import jax.numpy as jnp
+
 # import wandb  # Replaced by unified logger
 
 from algorithms.langevin_diffusion.ld_eval import eval_langevin
 from algorithms.langevin_diffusion.ld_init import initialize_mcd
 from algorithms.langevin_diffusion.ld_utils import collect_eps
-from algorithms.langevin_diffusion.od_langevin import compute_elbo, per_sample_elbo, per_sample_eubo
+from algorithms.langevin_diffusion.od_langevin import (
+    compute_elbo,
+    per_sample_elbo,
+    per_sample_eubo,
+)
 from algorithms.langevin_diffusion.optimizer import adam
 from eval.utils import extract_last_entry
 from utils.logger import log
@@ -39,10 +44,18 @@ def mcd_trainer(
     )
 
     evaluate = eval_langevin(
-        per_sample_elbo, per_sample_eubo, unflatten, params_fixed, target, target_samples, cfg
+        per_sample_elbo,
+        per_sample_eubo,
+        unflatten,
+        params_fixed,
+        target,
+        target_samples,
+        cfg,
     )
 
-    elbo_grad = jax.jit(jax.grad(compute_elbo, 1, has_aux=True), static_argnums=(2, 3, 4))
+    elbo_grad = jax.jit(
+        jax.grad(compute_elbo, 1, has_aux=True), static_argnums=(2, 3, 4)
+    )
     opt_init, update, get_params = adam(lr)
     update = jax.jit(update, static_argnums=(3, 4))
     opt_state = opt_init(params_flat)
@@ -57,7 +70,9 @@ def mcd_trainer(
         seeds = jax.random.split(key_gen, num=alg_cfg.batch_size)[:, 0]
         params_flat = get_params(opt_state)
 
-        grad, (elbo, x) = elbo_grad(seeds, params_flat, unflatten, params_fixed, target_log_prob)
+        grad, (elbo, x) = elbo_grad(
+            seeds, params_flat, unflatten, params_fixed, target_log_prob
+        )
 
         train_losses.append(jnp.mean(elbo).item())
         if jnp.isnan(jnp.mean(elbo)):
@@ -78,6 +93,6 @@ def mcd_trainer(
             print_results(i, logger, cfg)
 
             if cfg.use_logger:
-                log(extract_last_entry(logger))
+                log(extract_last_entry(logger), step=i)
 
     return (train_losses, test_losses), False, params_flat, logger

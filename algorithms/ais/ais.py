@@ -176,7 +176,7 @@ def outer_loop_ais(
     print_results(0, logger, cfg)
 
     if cfg.use_logger:
-        log(extract_last_entry(logger))
+        log(extract_last_entry(logger), step=0)
 
     return AlgoResultsTuple(
         test_samples=samples,

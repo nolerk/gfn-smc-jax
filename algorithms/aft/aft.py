@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+
 # import wandb  # Replaced by unified logger
 
 import algorithms.common.types as tp
@@ -40,7 +41,11 @@ def get_initial_samples_log_weight_tuples(
     initial_sampler: InitialSampler, key: RandomKey, cfg
 ) -> Tuple[SamplesTuple, LogWeightsTuple]:
     """Get initial train/validation/test state depending on cfg."""
-    batch_sizes = (cfg.algorithm.batch_size, cfg.algorithm.batch_size, cfg.algorithm.batch_size)
+    batch_sizes = (
+        cfg.algorithm.batch_size,
+        cfg.algorithm.batch_size,
+        cfg.algorithm.batch_size,
+    )
     subkeys = jax.random.split(key, 3)
     samples_tuple = SamplesTuple(
         *[
@@ -70,19 +75,23 @@ def update_tuples(
     log_weights_list = []
     acceptance_tuple_list = []
     subkeys = jax.random.split(key, 3)
-    for curr_samples, curr_log_weights, subkey in zip(samples_tuple, log_weights_tuple, subkeys):
-        new_samples, new_log_weights, acceptance_tuple = flow_transport.update_samples_log_weights(
-            flow_apply=flow_apply,
-            markov_kernel_apply=markov_kernel_apply,
-            flow_params=flow_params,
-            samples=curr_samples,
-            log_weights=curr_log_weights,
-            key=subkey,
-            log_density=log_density,
-            step=step,
-            use_resampling=cfg.algorithm.use_resampling,
-            use_markov=cfg.algorithm.use_markov,
-            resample_threshold=cfg.algorithm.resample_threshold,
+    for curr_samples, curr_log_weights, subkey in zip(
+        samples_tuple, log_weights_tuple, subkeys
+    ):
+        new_samples, new_log_weights, acceptance_tuple = (
+            flow_transport.update_samples_log_weights(
+                flow_apply=flow_apply,
+                markov_kernel_apply=markov_kernel_apply,
+                flow_params=flow_params,
+                samples=curr_samples,
+                log_weights=curr_log_weights,
+                key=subkey,
+                log_density=log_density,
+                step=step,
+                use_resampling=cfg.algorithm.use_resampling,
+                use_markov=cfg.algorithm.use_markov,
+                resample_threshold=cfg.algorithm.resample_threshold,
+            )
         )
         samples_list.append(new_samples)
         log_weights_list.append(new_log_weights)
@@ -140,12 +149,16 @@ def flow_estimate_step(
     )
 
     # Update the logs of train and validation vfes.
-    new_train_vfes = loop_state.opt_vfes.train_vfes.at[loop_state.inner_step].set(train_vfe)
-    new_validation_vfes = loop_state.opt_vfes.validation_vfes.at[loop_state.inner_step].set(
-        validation_vfe
+    new_train_vfes = loop_state.opt_vfes.train_vfes.at[loop_state.inner_step].set(
+        train_vfe
     )
+    new_validation_vfes = loop_state.opt_vfes.validation_vfes.at[
+        loop_state.inner_step
+    ].set(validation_vfe)
 
-    new_opt_vfes = VfesTuple(train_vfes=new_train_vfes, validation_vfes=new_validation_vfes)
+    new_opt_vfes = VfesTuple(
+        train_vfes=new_train_vfes, validation_vfes=new_validation_vfes
+    )
 
     # Apply gradients ready for next round of flow evaluations in the next step.
     updates, new_opt_state = opt_update(flow_grads, loop_state.opt_state)
@@ -233,7 +246,9 @@ def optimize_free_energy(
         )
 
     def cond_fun(loop_state: OptimizationLoopState) -> bool:
-        return flow_estimation_should_continue(loop_state, opt_iters, stopping_criterion)
+        return flow_estimation_should_continue(
+            loop_state, opt_iters, stopping_criterion
+        )
 
     initial_loop_state = OptimizationLoopState(
         opt_state, flow_params, 0, opt_vfes, flow_params, jnp.inf, -1
@@ -361,7 +376,14 @@ def outer_loop_aft(
         flow_params: FlowParams, samples: Array, log_weights: Array, step: int
     ) -> Array:
         return flow_transport.transport_free_energy_estimator(
-            samples, log_weights, flow_apply, None, flow_params, density_by_step, step, False
+            samples,
+            log_weights,
+            flow_apply,
+            None,
+            flow_params,
+            density_by_step,
+            step,
+            False,
         )
 
     free_energy_eval = jax.jit(free_energy_short)
@@ -428,9 +450,14 @@ def outer_loop_aft(
 
     for step in range(1, num_temps):
         subkey, key = jax.random.split(key)
-        samples_tuple, log_weights_tuple, vfes_tuple, incs, test_acceptance, flow_params = (
-            inner_loop_jit(subkey, samples_tuple, log_weights_tuple, step)
-        )
+        (
+            samples_tuple,
+            log_weights_tuple,
+            vfes_tuple,
+            incs,
+            test_acceptance,
+            flow_params,
+        ) = inner_loop_jit(subkey, samples_tuple, log_weights_tuple, step)
         flow_params_all.append(flow_params)
         acceptance_hmc = float(np.asarray(test_acceptance[0]))
         acceptance_rwm = float(np.asarray(test_acceptance[1]))
@@ -476,7 +503,7 @@ def outer_loop_aft(
     print_results(0, logger, cfg)
 
     if cfg.use_logger:
-        log(extract_last_entry(logger))
+        log(extract_last_entry(logger), step=0)
 
 
 def reverse_is_inner_loop(
@@ -500,19 +527,21 @@ def reverse_is_inner_loop(
         reverse=True,
     )
 
-    new_samples, new_log_weights, acceptance_tuple = flow_transport.update_samples_log_weights(
-        flow_apply=reverse_flow_apply,
-        markov_kernel_apply=markov_kernel_apply,
-        flow_params=flow_params,
-        samples=target_samples,
-        log_weights=log_weights,
-        key=key,
-        log_density=log_density_by_step,
-        step=step,
-        use_resampling=cfg.algorithm.use_resampling,
-        use_markov=cfg.algorithm.use_markov,
-        resample_threshold=cfg.algorithm.resample_threshold,
-        reverse=True,
+    new_samples, new_log_weights, acceptance_tuple = (
+        flow_transport.update_samples_log_weights(
+            flow_apply=reverse_flow_apply,
+            markov_kernel_apply=markov_kernel_apply,
+            flow_params=flow_params,
+            samples=target_samples,
+            log_weights=log_weights,
+            key=key,
+            log_density=log_density_by_step,
+            step=step,
+            use_resampling=cfg.algorithm.use_resampling,
+            use_markov=cfg.algorithm.use_markov,
+            resample_threshold=cfg.algorithm.resample_threshold,
+            reverse=True,
+        )
     )
 
     return new_samples, new_log_weights, log_normalizer_increment, acceptance_tuple

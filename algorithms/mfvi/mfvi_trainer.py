@@ -40,7 +40,9 @@ def neg_elbo(params, key, target_log_density, num_samples):
 def sample(params, key, num_samples):
     mean, log_var = params
     std = jnp.exp(0.5 * log_var)
-    return distrax.MultivariateNormalDiag(mean, std).sample(seed=key, sample_shape=(num_samples,))
+    return distrax.MultivariateNormalDiag(mean, std).sample(
+        seed=key, sample_shape=(num_samples,)
+    )
 
 
 # Training loop with optax.adam
@@ -51,9 +53,9 @@ def mfvi_trainer(cfg, target: Target):
         std = jnp.exp(0.5 * log_var)
 
         key, subkey = jax.random.split(key)
-        samples, model_log_prob = distrax.MultivariateNormalDiag(mean, std).sample_and_log_prob(
-            seed=key, sample_shape=(cfg.eval_samples,)
-        )
+        samples, model_log_prob = distrax.MultivariateNormalDiag(
+            mean, std
+        ).sample_and_log_prob(seed=key, sample_shape=(cfg.eval_samples,))
         target_log_prob = jax.vmap(target_log_density)(samples)
         return model_log_prob, target_log_prob, samples
 
@@ -66,7 +68,9 @@ def mfvi_trainer(cfg, target: Target):
         return model_log_p, target_log_p
 
     def eval_mfvi(key):
-        model_log_prob, target_log_prob, samples = rev_log_probs_and_samples(key, params)
+        model_log_prob, target_log_prob, samples = rev_log_probs_and_samples(
+            key, params
+        )
         if cfg.compute_forward_metrics and (target_samples is not None):
             fwd_model_log_prob, fwd_target_log_p = fwd_log_probs(params)
             logger = eval_fn(
@@ -76,7 +80,9 @@ def mfvi_trainer(cfg, target: Target):
                 fwd_target_log_p - fwd_model_log_prob,
             )
         else:
-            logger = eval_fn(samples, target_log_prob - model_log_prob, target_log_prob, None)
+            logger = eval_fn(
+                samples, target_log_prob - model_log_prob, target_log_prob, None
+            )
 
         return logger
 
@@ -119,4 +125,4 @@ def mfvi_trainer(cfg, target: Target):
             print_results(step, logger, cfg)
 
             if cfg.use_logger:
-                log(extract_last_entry(logger))
+                log(extract_last_entry(logger), step=step)

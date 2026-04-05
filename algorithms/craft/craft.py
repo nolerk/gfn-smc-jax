@@ -78,7 +78,12 @@ def eval_craft(
 
             flow_params, key, inner_step = per_step_input
             log_normalizer_increment = flow_transport.get_log_normalizer_increment(
-                samples, log_weights, flow_apply, flow_params, density_by_step, inner_step
+                samples,
+                log_weights,
+                flow_apply,
+                flow_params,
+                density_by_step,
+                inner_step,
             )
             next_samples, next_log_weights, acceptance_tuple = (
                 flow_transport.update_samples_log_weights(
@@ -136,18 +141,27 @@ def eval_craft(
         key, sub_key = jax.random.split(key)
         keys = jax.random.split(key, cfg.algorithm.num_temps - 1)
         per_step_inputs = (transition_params, keys, inner_steps)
-        final_state, per_step_outputs = jax.lax.scan(scan_step, initial_state, per_step_inputs)
+        final_state, per_step_outputs = jax.lax.scan(
+            scan_step, initial_state, per_step_inputs
+        )
         samples, log_is_weights = final_state
 
         is_weights = jnp.exp(log_is_weights)
-        (log_normalizer_increments, elbo_increments), unused_acceptance_tuples = per_step_outputs
+        (log_normalizer_increments, elbo_increments), unused_acceptance_tuples = (
+            per_step_outputs
+        )
         ln_z = jnp.sum(log_normalizer_increments)
         elbo = jnp.sum(elbo_increments)
 
         if cfg.compute_forward_metrics and (target_samples is not None):
             initial_samples_reverse = target_samples
-            initial_log_weights_reverse = -jnp.log(cfg.eval_samples) * jnp.ones(cfg.eval_samples)
-            initial_state_reverse = (initial_samples_reverse, initial_log_weights_reverse)
+            initial_log_weights_reverse = -jnp.log(cfg.eval_samples) * jnp.ones(
+                cfg.eval_samples
+            )
+            initial_state_reverse = (
+                initial_samples_reverse,
+                initial_log_weights_reverse,
+            )
             inner_steps_reverse = jnp.arange(1, cfg.algorithm.num_temps)[::-1]
             keys_reverse = jax.random.split(sub_key, cfg.algorithm.num_temps - 1)
             per_step_inputs_reverse = (
@@ -211,18 +225,20 @@ def inner_step_craft(
     log_normalizer_increment = flow_transport.get_log_normalizer_increment_craft(
         samples, log_weights, flow_apply, flow_params, log_density, step
     )
-    next_samples, next_log_weights, acceptance_tuple = flow_transport.update_samples_log_weights(
-        flow_apply=flow_apply,
-        markov_kernel_apply=markov_kernel_apply,
-        flow_params=flow_params,
-        samples=samples,
-        log_weights=log_weights,
-        key=key,
-        log_density=log_density,
-        step=step,
-        use_resampling=cfg.algorithm.use_resampling,
-        use_markov=cfg.algorithm.use_markov,
-        resample_threshold=cfg.algorithm.resample_threshold,
+    next_samples, next_log_weights, acceptance_tuple = (
+        flow_transport.update_samples_log_weights(
+            flow_apply=flow_apply,
+            markov_kernel_apply=markov_kernel_apply,
+            flow_params=flow_params,
+            samples=samples,
+            log_weights=log_weights,
+            key=key,
+            log_density=log_density,
+            step=step,
+            use_resampling=cfg.algorithm.use_resampling,
+            use_markov=cfg.algorithm.use_markov,
+            resample_threshold=cfg.algorithm.resample_threshold,
+        )
     )
 
     return (
@@ -275,9 +291,13 @@ def inner_loop_craft(
       log_normalizer_estimate: Estimate of the log normalizers.
     """
     subkey, key = jax.random.split(key)
-    initial_samples = initial_sampler(seed=subkey, sample_shape=(cfg.algorithm.batch_size,))
+    initial_samples = initial_sampler(
+        seed=subkey, sample_shape=(cfg.algorithm.batch_size,)
+    )
 
-    initial_log_weights = -jnp.log(cfg.algorithm.batch_size) * jnp.ones(cfg.algorithm.batch_size)
+    initial_log_weights = -jnp.log(cfg.algorithm.batch_size) * jnp.ones(
+        cfg.algorithm.batch_size
+    )
 
     def scan_step(passed_state, per_step_input):
         samples, log_weights = passed_state
@@ -309,7 +329,9 @@ def inner_loop_craft(
     inner_steps = jnp.arange(1, cfg.algorithm.num_temps)
     keys = jax.random.split(key, cfg.algorithm.num_temps - 1)
     per_step_inputs = (transition_params, keys, inner_steps)
-    final_state, per_step_outputs = jax.lax.scan(scan_step, initial_state, per_step_inputs)
+    final_state, per_step_outputs = jax.lax.scan(
+        scan_step, initial_state, per_step_inputs
+    )
     final_samples, final_log_weights = final_state
     flow_grads, free_energies, log_normalizer_increments, unused_acceptance_tuples = (
         per_step_outputs
@@ -388,7 +410,9 @@ def outer_loop_craft(
 
     free_energy_and_grad = jax.value_and_grad(free_energy_short)
 
-    def short_inner_loop(rng_key: RandomKey, curr_opt_states: OptState, curr_transition_params):
+    def short_inner_loop(
+        rng_key: RandomKey, curr_opt_states: OptState, curr_transition_params
+    ):
         return inner_loop_craft(
             key=rng_key,
             free_energy_and_grad=free_energy_and_grad,
@@ -457,6 +481,6 @@ def outer_loop_craft(
                 print_results(step, logger, cfg)
 
                 if cfg.use_logger:
-                    log(extract_last_entry(logger))
+                    log(extract_last_entry(logger), step=step)
 
     return test_elbos, logger

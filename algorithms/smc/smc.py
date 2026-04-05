@@ -11,6 +11,7 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
+
 # import wandb  # Replaced by unified logger
 
 import algorithms.common.types as tp
@@ -83,7 +84,12 @@ def inner_loop(
         log_weights_resampled = log_weights_new
     markov_samples, acceptance_tuple = markov_kernel_apply(step, key, resampled_samples)
 
-    return markov_samples, log_weights_resampled, log_normalizer_increment, acceptance_tuple
+    return (
+        markov_samples,
+        log_weights_resampled,
+        log_normalizer_increment,
+        acceptance_tuple,
+    )
 
 
 def get_short_inner_loop(
@@ -154,10 +160,14 @@ def outer_loop_smc(
     num_temps = alg_cfg.num_temps
     target_samples = target.sample(jax.random.PRNGKey(0), (cfg.eval_samples,))
 
-    samples = initial_sampler(seed=jax.random.PRNGKey(0), sample_shape=(alg_cfg.batch_size,))
+    samples = initial_sampler(
+        seed=jax.random.PRNGKey(0), sample_shape=(alg_cfg.batch_size,)
+    )
     log_weights = -jnp.log(alg_cfg.batch_size) * jnp.ones(alg_cfg.batch_size)
 
-    inner_loop_jit = jax.jit(get_short_inner_loop(markov_kernel_by_step, density_by_step, alg_cfg))
+    inner_loop_jit = jax.jit(
+        get_short_inner_loop(markov_kernel_by_step, density_by_step, alg_cfg)
+    )
     reverse_inner_loop_jit = jax.jit(
         get_short_reverse_inner_loop(markov_kernel_by_step, density_by_step, alg_cfg)
     )
@@ -224,4 +234,4 @@ def outer_loop_smc(
     print_results(0, logger, cfg)
 
     if cfg.use_logger:
-        log(extract_last_entry(logger))
+        log(extract_last_entry(logger), step=0)
