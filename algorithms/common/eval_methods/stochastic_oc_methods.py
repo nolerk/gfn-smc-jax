@@ -62,7 +62,7 @@ def get_eval_fn(rnd, target, target_xs, cfg):
         log_is_weights = -(running_costs + stochastic_costs + terminal_costs)
         ln_z = jax.scipy.special.logsumexp(log_is_weights) - jnp.log(cfg.eval_samples)
 
-        Z_var_reverse = jnp.var(jnp.exp(log_is_weights))
+        Z_var_reverse = jnp.var(jnp.exp(log_is_weights), ddof=1)
         logger["Z_var/reverse"].append(Z_var_reverse)
 
         elbo = jnp.mean(log_is_weights)

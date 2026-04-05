@@ -20,6 +20,7 @@ def per_sample_rnd(
     seed,
     model_state,
     params,
+    input_state: Array,
     aux_tuple,
     target,
     num_steps,
@@ -140,29 +141,27 @@ def per_sample_rnd(
         per_step_output = (x_new,)
         return next_state, per_step_output
 
-    key, key_gen = jax.random.split(seed)
-    key, key_gen = jax.random.split(key_gen)
     if prior_to_target:
-        init_x = jnp.squeeze(prior_sampler(params, key, 1))
-        aux = (init_x, 0.0, key)
+        init_x = input_state
+        aux = (init_x, 0.0, seed)
         aux, per_step_output = jax.lax.scan(
             simulate_prior_to_target, aux, jnp.arange(0, num_steps)
         )
-        final_x, log_ratio, _ = aux
-        terminal_cost = prior_log_prob(params, init_x) - target_log_prob(final_x)
+        terminal_x, log_ratio, _ = aux
+        terminal_cost = prior_log_prob(params, init_x) - target_log_prob(terminal_x)
     else:
-        init_x = jnp.squeeze(target.sample(key, (1,)))
-        aux = (init_x, 0.0, key)
+        terminal_x = input_state
+        aux = (terminal_x, 0.0, seed)
         aux, per_step_output = jax.lax.scan(
             simulate_target_to_prior, aux, jnp.arange(0, num_steps)[::-1]
         )
-        final_x, log_ratio, _ = aux
-        terminal_cost = prior_log_prob(params, final_x) - target_log_prob(init_x)
+        init_x, log_ratio, _ = aux
+        terminal_cost = prior_log_prob(params, init_x) - target_log_prob(terminal_x)
 
     running_cost = -log_ratio
     x_t = per_step_output
     stochastic_costs = jnp.zeros_like(running_cost)
-    return final_x, running_cost, stochastic_costs, terminal_cost, x_t
+    return terminal_x, running_cost, stochastic_costs, terminal_cost, x_t
 
 
 def rnd(
@@ -178,13 +177,21 @@ def rnd(
     prior_to_target=True,
     terminal_xs: Array | None = None,
 ):
+    if prior_to_target:
+        key, key_gen = jax.random.split(key)
+        prior_sampler, *_ = aux_tuple
+        input_states = prior_sampler(params, key_gen, batch_size)
+    else:
+        input_states = terminal_xs
+
     seeds = jax.random.split(key, num=batch_size)
     x_0, running_costs, stochastic_costs, terminal_costs, x_t = jax.vmap(
-        per_sample_rnd, in_axes=(0, None, None, None, None, None, None, None, None)
+        per_sample_rnd, in_axes=(0, None, None, 0, None, None, None, None, None, None)
     )(
         seeds,
         model_state,
         params,
+        input_states,
         aux_tuple,
         target,
         num_steps,
