@@ -123,7 +123,9 @@ def per_sample_rnd_pinned_brownian(
     if prior_to_target:
         init_x = input_state
         aux = (init_x, key)
-        aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(num_steps))
+        aux, per_step_output = jax.lax.scan(
+            simulate_prior_to_target, aux, jnp.arange(num_steps)
+        )
         terminal_x, _ = aux
     else:
         terminal_x = input_state
@@ -232,7 +234,9 @@ def per_sample_rnd_ou_dds(
     if prior_to_target:
         init_x = input_state
         aux = (init_x, key)
-        aux, per_step_output = jax.lax.scan(simulate_prior_to_target, aux, jnp.arange(num_steps))
+        aux, per_step_output = jax.lax.scan(
+            simulate_prior_to_target, aux, jnp.arange(num_steps)
+        )
         terminal_x, _ = aux
     else:
         terminal_x = input_state
@@ -319,15 +323,19 @@ def loss_fn(
     key: RandomKey,
     model_state: TrainState,
     params: ModelParams,
-    rnd_partial: Callable[[RandomKey, TrainState, ModelParams], tuple[Array, Array, Array, Array]],
-    loss_type: Literal["tb", "lv"],
+    rnd_partial: Callable[
+        [RandomKey, TrainState, ModelParams], tuple[Array, Array, Array, Array]
+    ],
+    loss_type: Literal["tb", "lv", "elv"],
     invtemp: float = 1.0,
     logr_clip: float = -1e5,
     huber_delta: float | None = None,
     importance_weighting: bool = False,
     target_ess: float = 0.0,
 ):
-    terminal_xs, running_costs, _, terminal_costs = rnd_partial(key, model_state, params)
+    terminal_xs, running_costs, _, terminal_costs = rnd_partial(
+        key, model_state, params
+    )
     log_rewards = jnp.where(
         -terminal_costs > logr_clip,
         -terminal_costs,
@@ -336,8 +344,10 @@ def loss_fn(
     log_ratio = running_costs - log_rewards * invtemp  # log_pfs - log_pbs - log_rewards
     if loss_type == "tb":
         losses = log_ratio + params["params"]["logZ"]
-    else:  # loss_type == "lv"
+    elif loss_type == "lv":  # loss_type == "lv"
         losses = log_ratio - jnp.mean(log_ratio)
+    elif loss_type == "elv":
+        losses = jnp.exp(-log_ratio) - jnp.mean(jnp.exp(-log_ratio))
 
     if huber_delta is not None:
         losses = jnp.where(
