@@ -1,0 +1,48 @@
+name: higgs
+num_components: 1
+dim: 3
+
+fn:
+  _target_: targets.higgs.Higgs
+  num_components: ${target.num_components}
+  dim: ${target.dim}
+  can_sample: False
+  min_coord: 0.0
+  max_coord: 1.0
+
+# Experiment-specific algorithm parameters
+# !!! Default Parameters; Currently not tuned for this experiment !!!
+# ----------------------------------------
+
+pcula:
+  max_diffusion: 1.
+  init_std: 1.
+  step_size: 5e-4
+  penalty_strength: 1.0
+
+gfn_tb: # Trajectory Balance
+  reference_process: ou_dds  # pinned_brownian, ou, or ou_dds
+  init_std: 1.  # for ou or ou_dss
+  max_diffusion: 1.  # for pinned_brownian or ou
+  step_size: 1e-3
+  logZ_step_size: 1e-1
+  init_logZ: 0.
+
+gfn_tb_beta: # Trajectory Balance
+  step_size: 1e-3
+  logZ_step_size: 1e-1
+  init_logZ: 0.
+
+hmc:  # Hamilton Monte Carlo
+  hmc_step_size: [0.001, 0.1]
+
+smc: # Sequential Monte Carlo Sampler
+  init_std: 1.
+
+all: # Parameters that are shared between all algorithms
+  batch_size: 2000
+  iters: 20000
+  milestones: [10000, 15000]
+  num_steps: 64
+  use_lp: True
+  num_hid: 256
