@@ -1,14 +1,8 @@
 name: higgs
-num_components: 1
 dim: 3
 
 fn:
   _target_: targets.higgs.Higgs
-  num_components: ${target.num_components}
-  dim: ${target.dim}
-  can_sample: False
-  min_coord: 0.0
-  max_coord: 1.0
 
 # Experiment-specific algorithm parameters
 # !!! Default Parameters; Currently not tuned for this experiment !!!

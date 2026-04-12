@@ -7,7 +7,7 @@ import jax.random as random
 def rejection_sample_domain(
     seed: chex.PRNGKey,
     sample_shape: chex.Shape,
-    dist,
+    sample_fn,
     is_inside_fn,
     dim: int,
 ) -> chex.Array:
@@ -23,7 +23,7 @@ def rejection_sample_domain(
 
         N = buffer.shape[0]
 
-        proposal = dist.sample(seed=subkey, sample_shape=(N,))
+        proposal = sample_fn(seed=subkey, sample_shape=(N,))
         mask = is_inside_fn(proposal)
         mask_int = mask.astype(jnp.int32)
 

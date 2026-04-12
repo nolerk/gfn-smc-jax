@@ -1,14 +1,14 @@
-name: cube
+name: gmm_cube
 num_components: 10
 dim: 2
 
 fn:
-  _target_: targets.cube.Cube
+  _target_: targets.gmm_cube.GMMCube
   num_components: ${target.num_components}
   dim: ${target.dim}
-  can_sample: True
   min_coord: 0.0
   max_coord: 1.0
+  mask_outside: True
   scale: 0.001
 
 # Experiment-specific algorithm parameters

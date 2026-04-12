@@ -21,55 +21,22 @@ class Cube(Target):
     def __init__(
         self,
         dim,
-        num_components,
+        log_prob_fn=None,
         min_coord=0.0,
         max_coord=1.0,
-        scale=1.0,
-        can_sample=True,
+        mask_outside=True,  # whether to set p(x)=0 outside the domain
+        sample_fn=None,
         sample_bounds=None,
     ) -> None:
         self._dim = dim
         self.min_coord = min_coord
         self.max_coord = max_coord
-
-        seed = jax.random.PRNGKey(1)
-        degree_of_freedom_wishart = dim + 2
-
-        seed, subkey = random.split(seed)
-        # set mixture components
-        self.locs = jax.random.uniform(
-            subkey,
-            minval=min_coord,
-            maxval=max_coord,
-            shape=(num_components, dim),
-        )
-        self.covariances = []
-        for _ in range(num_components):
-            seed, subkey = random.split(seed)
-
-            # Set the random seed for Scipy
-            seed_value = random.randint(key=subkey, shape=(), minval=0, maxval=2**30)
-            np.random.seed(seed_value)
-
-            cov_matrix = wishart.rvs(
-                df=degree_of_freedom_wishart, scale=scale * jnp.eye(dim)
-            )
-            self.covariances.append(cov_matrix)
-        self.covariances = jnp.array(self.covariances)
-
-        component_dist = distrax.MultivariateNormalFullCovariance(
-            self.locs, self.covariances
-        )
-        mixture_weights = distrax.Categorical(
-            logits=jnp.ones(num_components) / num_components
-        )
-        self.mixture_distribution = distrax.MixtureSameFamily(
-            mixture_distribution=mixture_weights,
-            components_distribution=component_dist,
-        )
+        self.log_prob_fn = log_prob_fn
+        self.mask_outside = mask_outside
+        self.sample_fn = sample_fn
 
         log_Z = self._compute_true_logZ()
-        super().__init__(dim, log_Z, can_sample)
+        super().__init__(dim, log_Z, can_sample=sample_fn is not None)
 
     def is_inside(self, x: chex.Array) -> bool:
         return jnp.all((x >= self.min_coord) & (x <= self.max_coord), axis=-1)
@@ -96,7 +63,7 @@ class Cube(Target):
             return self.cube_to_rd(samples)
 
         return rejection_sample_domain(
-            seed, sample_shape, self.mixture_distribution, self.is_inside, self.dim
+            seed, sample_shape, self.sample_fn, self.is_inside, self.dim
         )
 
     def log_prob(self, x: chex.Array, constrained: bool = False) -> chex.Array:
@@ -112,8 +79,9 @@ class Cube(Target):
         if not batched:
             x = x[None]
 
-        log_prob = self.mixture_distribution.log_prob(x)
-        # log_prob = jnp.where(self.is_inside(x), log_prob, -jnp.inf)
+        log_prob = self.log_prob_fn(x)
+        if self.mask_outside:
+            log_prob = jnp.where(self.is_inside(x), log_prob, -jnp.inf)
 
         if not batched:
             log_prob = jnp.squeeze(log_prob, axis=0)
@@ -122,33 +90,18 @@ class Cube(Target):
     def _compute_true_logZ(
         self, num_samples: int = 100000, seed: chex.PRNGKey = None
     ) -> float:
-        """
-        Estimate the normalization constant Z (partition function) of the constrained density
-        using Monte Carlo integration.
-
-        Args:
-            num_samples (int): Number of Monte Carlo samples to use.
-            seed: (chex.PRNGKey or None): Optional random seed.
-
-        Returns:
-            float: Estimated log Z = log ∫ p(x) dx over [min_coord, max_coord]^d
-        """
         if seed is None:
             seed = jax.random.PRNGKey(42)
-        # Uniformly sample points in the cube
         shape = (num_samples, self.dim)
         seed, subkey = random.split(seed)
         samples = jax.random.uniform(
             subkey, shape=shape, minval=self.min_coord, maxval=self.max_coord
         )
-        # Compute probability under the constrained mixture model
         log_probs = self.log_prob(samples, constrained=True)
-        # Since log_prob can return -inf for out-of-domain, mask them out
         mask = jnp.isfinite(log_probs)
         valid_log_probs = log_probs[mask]
 
         log_volume = self.dim * jnp.log(float(self.max_coord - self.min_coord))
-        # Estimate integral
         log_integral = (
             logsumexp(valid_log_probs) - jnp.log(valid_log_probs.shape[0]) + log_volume
         )
@@ -221,17 +174,3 @@ class Cube(Target):
         else:
 
             return {}
-
-
-if __name__ == "__main__":
-    key = jax.random.PRNGKey(45)
-    cube = Cube(dim=2, num_components=10, min_coord=0.0, max_coord=1.0, scale=0.001)
-    print(jnp.exp(cube.log_Z))
-    # samples = cube.sample(key, (300,), constrained=True)
-
-    @jax.jit
-    def sample():
-        return cube.sample(key, (300,), constrained=True)
-
-    samples = sample()
-    cube.visualise(samples, show=True, constrained=True, map_samples=False)
