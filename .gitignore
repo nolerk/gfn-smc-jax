@@ -193,3 +193,5 @@ utils/prior_gif.gif
 # Slurm
 scripts/
 slurm_logs/
+
+sbatch_logs_*/

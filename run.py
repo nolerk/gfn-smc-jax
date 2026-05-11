@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 
 import comet_ml
-import wandb
+# import wandb
 import hydra
 import jax
 import matplotlib
@@ -38,7 +38,7 @@ def main(cfg: DictConfig) -> None:
             config_dict=flatten_dict(OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
         )
         set_logger(logger)
-        log_code(".")
+        # log_code(".")
     
     train_fn = get_train_fn(cfg.algorithm.name)
 
